@@ -1,0 +1,123 @@
+# ==============================================================================
+# Synchrono AI Chatbot — Git Ignore Rules
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Sensitive Files & Secrets (CRITICAL: NEVER COMMIT)
+# ------------------------------------------------------------------------------
+.env
+.env.*
+.env.local
+.env.development
+.env.staging
+.env.production
+.env.test
+# Explicitly allow the sanitized example template
+!.env.example
+
+# Private keys, certificates & credentials
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+id_rsa*
+secrets.json
+
+# ------------------------------------------------------------------------------
+# 2. Database Files & Volumes
+# ------------------------------------------------------------------------------
+# Local SQLite fallbacks & databases
+*.db
+*.sqlite
+*.sqlite3
+data/
+data/*
+synchrono_chatbot_data/
+*.dump
+*.sql.gz
+
+# ------------------------------------------------------------------------------
+# 3. Test Outputs & Temporary Evaluation Artifacts
+# ------------------------------------------------------------------------------
+# Pytest caches & reports
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+nosetests.xml
+
+# Generated test run outputs & eval reports (keep test_cases.json, rubric.md, and run_eval.py)
+evals/results.json
+evals/results_*.json
+evals/*_report.json
+evals/*_report.md
+evals/test_live.py
+
+# Scratch scripts & temporary data files
+scratch/
+tmp/
+temp/
+
+# ------------------------------------------------------------------------------
+# 4. Python Environment & Compilation Caches
+# ------------------------------------------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Build & packaging artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+eggs/
+.eggs/
+wheels/
+
+# Type checking & linter caches
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+
+# ------------------------------------------------------------------------------
+# 5. Runtime Logs & System Dumps
+# ------------------------------------------------------------------------------
+*.log
+logs/
+*.pid
+*.seed
+*.sublime-project
+*.sublime-workspace
+
+# ------------------------------------------------------------------------------
+# 6. IDE, Editor & OS Artifacts
+# ------------------------------------------------------------------------------
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.directory
+
+# Operating System files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+[Dd]esktop.ini

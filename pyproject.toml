@@ -1,0 +1,30 @@
+[project]
+name = "synchrono-chatbot"
+version = "1.0.0"
+description = "Standalone Synchrono AI Chatbot Service with FastAPI, PostgreSQL, and Opik Cloud Tracing"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.10.0",
+    "langchain>=1.4.3",
+    "langchain-core>=1.6.6",
+    "langgraph>=1.2.12",
+    "langchain-openai>=1.6.6",
+    "psycopg[binary]>=3.2.0",
+    "sqlalchemy>=2.0.35",
+    "pymysql>=1.1.1",
+    "python-dotenv>=1.2.0",
+    "opik>=2.2.85",
+    "httpx>=0.28.0",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "langchain-ollama>=1.1.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+

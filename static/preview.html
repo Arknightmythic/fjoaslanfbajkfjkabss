@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pratinjau File Batch: Synchrono Platform</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <div class="host-app">
+    <header class="host-navbar">
+      <div class="host-brand">
+        <div class="host-logo">S</div>
+        <div class="host-title">
+          <span class="host-name">Synchrono</span>
+          <span class="host-sub">Batch Preview (Grade A)</span>
+        </div>
+      </div>
+      <div class="host-nav-links">
+        <a href="/" class="host-nav-item">Dashboard</a>
+        <span class="host-nav-item active">Pratinjau File</span>
+        <a href="/docs" target="_blank" class="host-doc-link">API Docs</a>
+      </div>
+    </header>
+
+    <main class="host-dashboard">
+      <div style="margin-bottom: 20px;">
+        <a href="/" style="color: var(--brand-blue); text-decoration: none; font-size: 13px; display: inline-flex; align-items: center; gap: 6px;">
+          <span>&larr;</span> Kembali ke Ringkasan Dashboard
+        </a>
+      </div>
+
+      <div class="host-page-header">
+        <div>
+          <h1 id="prev-header-title">Pratinjau File: Memuat...</h1>
+          <p>File ini telah terverifikasi dengan tingkat kelengkapan tertinggi (100% NIK valid).</p>
+        </div>
+        <div class="host-header-badge" style="background-color: rgba(16, 185, 129, 0.15); color: #34d399; border-color: rgba(16, 185, 129, 0.3);">
+          Grade A: Auto-Matched
+        </div>
+      </div>
+
+      <div class="host-stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+        <div class="stat-card">
+          <span class="stat-label">File ID</span>
+          <span class="stat-value" id="prev-file-id" style="font-size: 20px;">-</span>
+          <span class="stat-meta">ID batch registrasi</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Nama File Original</span>
+          <span class="stat-value" id="prev-file-name" style="font-size: 16px; word-break: break-all;">-</span>
+          <span class="stat-meta" id="prev-file-rows">-</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Tingkat Otomasi</span>
+          <span class="stat-value" style="font-size: 22px; color: #34d399;">100%</span>
+          <span class="stat-meta">Seluruh NIK valid 16 digit</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Status Sinkronisasi</span>
+          <span class="stat-value" style="font-size: 20px; color: #34d399;">SUCCESS</span>
+          <span class="stat-meta">Selesai terpadankan</span>
+        </div>
+      </div>
+
+      <div class="host-hint-box" style="margin-bottom: 28px;">
+        <strong style="color: #34d399;">Kualitas Data Grade A Terpenuhi:</strong>
+        <p style="margin-top: 4px;">
+          Seluruh record pada batch ini telah berhasil dipadankan ke master identity tanpa memerlukan peninjauan manual.
+        </p>
+      </div>
+    </main>
+  </div>
+
+  <!-- Floating Launcher FAB -->
+  <button id="widget-fab" class="widget-fab" title="Buka Synchrono AI Assistant" aria-label="Buka Chatbot">
+    <svg class="icon-open" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+    </svg>
+    <svg class="icon-close hidden" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18"></line>
+      <line x1="6" y1="6" x2="18" y2="18"></line>
+    </svg>
+    <span class="fab-pulse"></span>
+  </button>
+
+  <script src="/static/app.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const params = new URLSearchParams(window.location.search);
+      const fileId = params.get("file_id") || "telkom-001";
+      const fileName = params.get("name") || "pegawai_telkomsel_q1.parquet";
+
+      document.getElementById("prev-header-title").textContent = `Pratinjau: ${fileName}`;
+      document.getElementById("prev-file-id").textContent = fileId;
+      document.getElementById("prev-file-name").textContent = fileName;
+      document.getElementById("prev-file-rows").textContent = "50.000 record terpadankan";
+    });
+  </script>
+</body>
+</html>
