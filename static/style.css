@@ -327,6 +327,11 @@ a:focus-visible {
   border-radius: var(--radius-lg);
 }
 
+/* Hide launcher FAB while popup is open in fullscreen or on mobile to avoid overlapping controls */
+body:has(.chat-popup.open.fullscreen) .widget-fab {
+  display: none;
+}
+
 /* Header */
 .popup-header {
   height: 60px;
@@ -385,6 +390,10 @@ a:focus-visible {
   background-color: var(--status-online);
 }
 
+.status-indicator-dot.warning {
+  background-color: var(--status-warning);
+}
+
 .status-indicator-dot.offline {
   background-color: var(--status-error);
 }
@@ -440,11 +449,13 @@ a:focus-visible {
   flex-direction: column;
   z-index: 50;
   transform: translateX(-100%);
-  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  visibility: hidden;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.22s;
 }
 
 .history-drawer.open {
   transform: translateX(0);
+  visibility: visible;
 }
 
 .drawer-header {
@@ -926,6 +937,63 @@ a:focus-visible {
   flex-shrink: 0;
 }
 
+.connection-config-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.connection-config-bar label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.connection-config-bar input {
+  flex: 1;
+  background-color: var(--popup-bg);
+  border: 1px solid var(--popup-border);
+  color: var(--text-primary);
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.connection-config-bar input:focus {
+  border-color: var(--brand-blue);
+  box-shadow: 0 0 0 1px var(--brand-blue);
+}
+
+.connection-config-bar input.input-error {
+  border-color: var(--status-error);
+  box-shadow: 0 0 0 1px var(--status-error);
+}
+
+.message-alert {
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+
+.message-alert.warning {
+  background-color: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fcd34d;
+}
+
+.message-alert.error {
+  background-color: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+
 .input-form {
   display: flex;
   align-items: flex-end;
@@ -1020,6 +1088,10 @@ a:focus-visible {
    Mobile Breakpoint Reflow (Antislop R-03)
    ======================================================== */
 @media (max-width: 640px) {
+  body:has(.chat-popup.open) .widget-fab {
+    display: none;
+  }
+
   .chat-popup {
     bottom: 0;
     right: 0;

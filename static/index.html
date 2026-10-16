@@ -92,7 +92,7 @@
         <div class="assistant-details">
           <div class="assistant-name">
             <span>Synchrono Assistant</span>
-            <span class="status-indicator-dot online" id="api-status-dot" title="Terkoneksi ke PostgreSQL & Ollama Cloud"></span>
+            <span class="status-indicator-dot" id="api-status-dot" title="Memeriksa ketersediaan endpoint POST /chat..."></span>
           </div>
           <div class="assistant-subtitle" id="current-chat-title">Percakapan Baru</div>
         </div>
@@ -134,7 +134,7 @@
     </header>
 
     <!-- Slide-in History Drawer -->
-    <div id="history-drawer" class="history-drawer">
+    <div id="history-drawer" class="history-drawer" inert>
       <div class="drawer-header">
         <h3>Riwayat Sesi Chat</h3>
         <button id="btn-new-chat" class="btn-new-session" title="Mulai sesi baru">+ Sesi Baru</button>
@@ -142,11 +142,14 @@
 
       <div class="drawer-user-config">
         <label for="input-user-id">User ID:</label>
-        <input type="text" id="input-user-id" value="analyst_test_user" placeholder="user_id">
+        <input type="text" id="input-user-id" maxlength="36" placeholder="UUID pengguna (maks 36 karakter)">
       </div>
 
       <ul id="conversation-list" class="drawer-list">
-        <li class="drawer-empty">Memuat riwayat...</li>
+        <li class="drawer-empty">
+          <div style="font-weight: 600; margin-bottom: 4px; color: var(--text-secondary);">Riwayat Server Tidak Tersedia</div>
+          <div>API riwayat belum tersedia. Pesan pada tampilan akan hilang saat halaman dimuat ulang.</div>
+        </li>
       </ul>
 
       <div class="drawer-footer">
@@ -213,7 +216,7 @@
           <input type="checkbox" id="toggle-pii" checked>
           <span>Sensor NIK 16 Digit (PII Masking)</span>
         </label>
-        <span class="model-meta">Ollama Cloud: gemma4:31b-cloud</span>
+        <span class="model-meta" id="backend-endpoint-meta">POST /chat</span>
       </div>
     </footer>
   </div>

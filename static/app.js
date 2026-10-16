@@ -26,17 +26,17 @@ document.addEventListener("DOMContentLoaded", () => {
   const liveIndicatorTextEl = document.getElementById("live-indicator-text");
   const togglePiiEl = document.getElementById("toggle-pii");
 
-  // DOM Elements - History Drawer
+  // DOM Elements - User Config
+  const inputUserIdEl = document.getElementById("input-user-id");
   const conversationListEl = document.getElementById("conversation-list");
   const btnNewChatEl = document.getElementById("btn-new-chat");
-  const inputUserIdEl = document.getElementById("input-user-id");
 
-  // State
-  let currentConversationId = generateUUID();
-  let currentUserId = inputUserIdEl.value.trim() || "analyst_test_user";
+  // State Management
+  let currentThreadId = generateUUID();
+  let currentUserId = initUserId();
   let isGenerating = false;
 
-  // Configure Marked Markdown Renderer for Beautiful Tables & Links (compatible with marked v12-v15+)
+  // Configure Marked Markdown Renderer
   if (typeof marked !== "undefined") {
     marked.use({
       renderer: {
@@ -87,7 +87,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Normalize line endings to ensure consistent GFM rendering
   function formatMarkdown(content) {
     if (!content) return "";
     return content.replace(/\r\n/g, "\n");
@@ -105,10 +104,87 @@ document.addEventListener("DOMContentLoaded", () => {
     return escapeHtml(content);
   }
 
-  // Initialize
+  // ─── UUID & Config Initialization ───────────────────────────────
+
+  function generateUUID() {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === "x" ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
+  function sanitizeUserId(val) {
+    const cleaned = (val || "").trim().slice(0, 36);
+    return cleaned || generateUUID();
+  }
+
+  function initUserId() {
+    let savedId = "";
+    try {
+      savedId = localStorage.getItem("synchrono_user_id");
+    } catch (_) {}
+    savedId = sanitizeUserId(savedId);
+    try {
+      localStorage.setItem("synchrono_user_id", savedId);
+    } catch (_) {}
+    if (inputUserIdEl) {
+      inputUserIdEl.value = savedId;
+    }
+    return savedId;
+  }
+
+  if (inputUserIdEl) {
+    inputUserIdEl.addEventListener("change", (e) => {
+      currentUserId = sanitizeUserId(e.target.value);
+      inputUserIdEl.value = currentUserId;
+      try {
+        localStorage.setItem("synchrono_user_id", currentUserId);
+      } catch (_) {}
+    });
+  }
+
+  // ─── Startup & OpenAPI Route Verification ───────────────────────
+
   updateCurrentChatTitle("Percakapan Baru");
-  checkApiHealth();
-  loadConversations();
+  updateHistoryDrawer();
+  checkApiReadiness();
+
+  async function checkApiReadiness() {
+    if (!apiStatusDotEl) return;
+    try {
+      const res = await fetch("/openapi.json");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const spec = await res.json();
+      const hasChatPost = !!(spec && spec.paths && spec.paths["/chat"] && spec.paths["/chat"].post);
+      if (hasChatPost) {
+        apiStatusDotEl.className = "status-indicator-dot online";
+        apiStatusDotEl.title = "Endpoint POST /chat terdaftar di OpenAPI";
+      } else {
+        apiStatusDotEl.className = "status-indicator-dot warning";
+        apiStatusDotEl.title = "Endpoint POST /chat tidak terdaftar";
+      }
+    } catch (err) {
+      apiStatusDotEl.className = "status-indicator-dot offline";
+      apiStatusDotEl.title = "Tidak dapat memeriksa OpenAPI: " + err.message;
+    }
+  }
+
+  function updateHistoryDrawer() {
+    if (!conversationListEl) return;
+    conversationListEl.innerHTML = `
+      <li class="drawer-empty">
+        <div style="font-weight: 600; margin-bottom: 6px; color: var(--text-secondary);">Riwayat Server Tidak Tersedia</div>
+        <div>API riwayat belum tersedia. Pesan pada tampilan akan hilang saat halaman dimuat ulang.</div>
+        <div style="margin-top: 12px; font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); word-break: break-all;">
+          Thread ID: ${escapeHtml(currentThreadId)}
+        </div>
+      </li>
+    `;
+  }
 
   // ─── Pop-up & Widget Interactions ───────────────────────────────
 
@@ -123,7 +199,10 @@ document.addEventListener("DOMContentLoaded", () => {
     chatPopupEl.classList.remove("open");
     iconOpenEl.classList.remove("hidden");
     iconCloseEl.classList.add("hidden");
-    historyDrawerEl.classList.remove("open");
+    closeHistoryDrawer(false);
+    if (widgetFabEl) {
+      widgetFabEl.focus();
+    }
   }
 
   function togglePopup() {
@@ -141,21 +220,41 @@ document.addEventListener("DOMContentLoaded", () => {
     iconCollapseEl.classList.toggle("hidden", !isFullscreen);
   }
 
+  function openHistoryDrawer() {
+    historyDrawerEl.classList.add("open");
+    historyDrawerEl.inert = false;
+    historyDrawerEl.removeAttribute("inert");
+    if (btnNewChatEl) btnNewChatEl.focus();
+  }
+
+  function closeHistoryDrawer(returnFocus = true) {
+    if (!historyDrawerEl.classList.contains("open")) return;
+    historyDrawerEl.classList.remove("open");
+    historyDrawerEl.inert = true;
+    historyDrawerEl.setAttribute("inert", "");
+    if (returnFocus && btnToggleHistoryEl) {
+      btnToggleHistoryEl.focus();
+    }
+  }
+
   function toggleHistoryDrawer() {
-    historyDrawerEl.classList.toggle("open");
+    if (historyDrawerEl.classList.contains("open")) {
+      closeHistoryDrawer(true);
+    } else {
+      openHistoryDrawer();
+    }
   }
 
   widgetFabEl.addEventListener("click", togglePopup);
   btnClosePopupEl.addEventListener("click", closePopup);
   btnToggleFullscreenEl.addEventListener("click", toggleFullscreen);
   btnToggleHistoryEl.addEventListener("click", toggleHistoryDrawer);
-  btnCloseDrawerEl.addEventListener("click", () => historyDrawerEl.classList.remove("open"));
+  btnCloseDrawerEl.addEventListener("click", () => closeHistoryDrawer(true));
 
-  // Keyboard shortcut: Escape to close drawer or popup
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       if (historyDrawerEl.classList.contains("open")) {
-        historyDrawerEl.classList.remove("open");
+        closeHistoryDrawer(true);
       } else if (chatPopupEl.classList.contains("open")) {
         closePopup();
       }
@@ -165,16 +264,11 @@ document.addEventListener("DOMContentLoaded", () => {
   // ─── Input & Form Handling ─────────────────────────────────────
 
   btnNewChatEl.addEventListener("click", () => {
+    if (isGenerating) return;
     startNewChat();
-    historyDrawerEl.classList.remove("open");
+    closeHistoryDrawer(false);
   });
 
-  inputUserIdEl.addEventListener("change", () => {
-    currentUserId = inputUserIdEl.value.trim() || "analyst_test_user";
-    loadConversations();
-  });
-
-  // Auto-resize input textarea
   chatInputEl.addEventListener("input", () => {
     chatInputEl.style.height = "auto";
     chatInputEl.style.height = Math.min(chatInputEl.scrollHeight, 120) + "px";
@@ -194,7 +288,6 @@ document.addEventListener("DOMContentLoaded", () => {
     sendMessage(query);
   });
 
-  // Quick Prompt Chips delegation
   document.addEventListener("click", (e) => {
     const chip = e.target.closest(".prompt-chip");
     if (chip) {
@@ -207,16 +300,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ─── Helpers ───────────────────────────────────────────────────
 
-  function generateUUID() {
-    return "conv-" + Math.random().toString(36).substring(2, 9) + "-" + Date.now().toString(36);
-  }
-
   function updateCurrentChatTitle(title) {
-    currentChatTitleEl.textContent = title;
+    if (currentChatTitleEl) currentChatTitleEl.textContent = title;
   }
 
   function startNewChat() {
-    currentConversationId = generateUUID();
+    currentThreadId = generateUUID();
     updateCurrentChatTitle("Percakapan Baru");
     messagesContainerEl.innerHTML = "";
     if (welcomeCardEl) {
@@ -226,118 +315,7 @@ document.addEventListener("DOMContentLoaded", () => {
     chatInputEl.value = "";
     chatInputEl.style.height = "auto";
     chatInputEl.focus();
-    highlightActiveConversation(null);
-  }
-
-  async function checkApiHealth() {
-    try {
-      const res = await fetch("/api/v1/health");
-      if (!res.ok) throw new Error("Healthcheck status not 200");
-      const data = await res.json();
-      apiStatusDotEl.className = "status-indicator-dot online";
-      apiStatusDotEl.title = `Terkoneksi: ${data.postgres_db} | Model: ${data.model}`;
-    } catch (err) {
-      apiStatusDotEl.className = "status-indicator-dot offline";
-      apiStatusDotEl.title = "Offline / Gagal terhubung ke API";
-    }
-  }
-
-  async function loadConversations() {
-    try {
-      const res = await fetch(`/api/v1/conversations?user_id=${encodeURIComponent(currentUserId)}`);
-      if (!res.ok) throw new Error("Failed to fetch conversations");
-      const list = await res.json();
-
-      conversationListEl.innerHTML = "";
-      if (!list || list.length === 0) {
-        conversationListEl.innerHTML = `<li class="drawer-empty">Belum ada riwayat percakapan.</li>`;
-        return;
-      }
-
-      list.forEach((item) => {
-        const li = document.createElement("li");
-        li.className = "drawer-item";
-        li.setAttribute("data-id", item.id);
-        if (item.id === currentConversationId) {
-          li.classList.add("active");
-        }
-
-        li.innerHTML = `
-          <span class="title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</span>
-          <button class="btn-delete" title="Hapus sesi" data-id="${item.id}">✕</button>
-        `;
-
-        li.addEventListener("click", (e) => {
-          if (e.target.closest(".btn-delete")) return;
-          loadConversationMessages(item.id, item.title);
-          historyDrawerEl.classList.remove("open");
-        });
-
-        li.querySelector(".btn-delete").addEventListener("click", async (e) => {
-          e.stopPropagation();
-          if (confirm(`Hapus sesi "${item.title}"?`)) {
-            await deleteConversation(item.id);
-          }
-        });
-
-        conversationListEl.appendChild(li);
-      });
-    } catch (err) {
-      conversationListEl.innerHTML = `<li class="drawer-empty">Gagal memuat: ${escapeHtml(err.message)}</li>`;
-    }
-  }
-
-  async function deleteConversation(id) {
-    try {
-      await fetch(`/api/v1/conversations/${encodeURIComponent(id)}`, { method: "DELETE" });
-      if (id === currentConversationId) {
-        startNewChat();
-      }
-      loadConversations();
-    } catch (err) {
-      alert("Gagal menghapus percakapan: " + err.message);
-    }
-  }
-
-  async function loadConversationMessages(conversationId, title) {
-    currentConversationId = conversationId;
-    updateCurrentChatTitle(title);
-    highlightActiveConversation(conversationId);
-
-    if (welcomeCardEl) {
-      welcomeCardEl.style.display = "none";
-    }
-    messagesContainerEl.innerHTML = `<div class="drawer-empty">Memuat pesan...</div>`;
-
-    try {
-      const res = await fetch(`/api/v1/conversations/${encodeURIComponent(conversationId)}`);
-      if (!res.ok) throw new Error("Gagal mengambil pesan");
-      const messages = await res.json();
-
-      messagesContainerEl.innerHTML = "";
-      if (messages.length === 0) {
-        messagesContainerEl.innerHTML = `<div class="drawer-empty">Percakapan kosong.</div>`;
-        return;
-      }
-
-      messages.forEach((msg) => {
-        const isAi = (msg.role === "ai" || msg.role === "assistant");
-        appendMessageBubble(isAi ? "ai" : "human", msg.content, isAi);
-      });
-      scrollToBottom();
-    } catch (err) {
-      messagesContainerEl.innerHTML = `<div class="drawer-empty">Error: ${escapeHtml(err.message)}</div>`;
-    }
-  }
-
-  function highlightActiveConversation(id) {
-    document.querySelectorAll(".drawer-item").forEach((el) => {
-      if (el.getAttribute("data-id") === id) {
-        el.classList.add("active");
-      } else {
-        el.classList.remove("active");
-      }
-    });
+    updateHistoryDrawer();
   }
 
   function appendMessageBubble(role, content = "", isMarkdown = true) {
@@ -357,6 +335,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (role === "ai" && isMarkdown) {
       bubble.innerHTML = renderMarkdown(content);
+    } else if (role === "ai" && !isMarkdown) {
+      bubble.innerHTML = content;
     } else {
       bubble.textContent = content;
     }
@@ -373,14 +353,21 @@ document.addEventListener("DOMContentLoaded", () => {
     messagesContainerEl.scrollTop = messagesContainerEl.scrollHeight;
   }
 
-  // ─── Real-time SSE Chat Streaming ──────────────────────────────
+  function setFormControlsDisabled(disabled) {
+    chatInputEl.disabled = disabled;
+    btnSendEl.disabled = disabled;
+    if (btnNewChatEl) btnNewChatEl.disabled = disabled;
+    if (inputUserIdEl) inputUserIdEl.disabled = disabled;
+    if (togglePiiEl) togglePiiEl.disabled = disabled;
+  }
+
+  // ─── Real-time SSE Chat Streaming (POST /chat) ─────────────────
 
   async function sendMessage(query) {
     isGenerating = true;
     chatInputEl.value = "";
     chatInputEl.style.height = "auto";
-    chatInputEl.disabled = true;
-    btnSendEl.disabled = true;
+    setFormControlsDisabled(true);
 
     // Append user message
     appendMessageBubble("human", query, false);
@@ -401,31 +388,47 @@ document.addEventListener("DOMContentLoaded", () => {
       scrollToBottom();
     }
 
-    setBubbleThinking("Menghubungkan ke agen analitik...");
-
+    // Required State: Connecting / Streaming
+    setBubbleThinking("Menghubungkan ke endpoint /chat...");
     liveIndicatorEl.classList.remove("hidden");
     liveIndicatorTextEl.textContent = "Menganalisis permintaan...";
 
     let fullAiResponse = "";
+    let receivedEnd = false;
 
     try {
-      const response = await fetch("/api/v1/chat", {
+      const response = await fetch("/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Accept": "text/event-stream",
         },
         body: JSON.stringify({
-          query: query,
-          conversation_id: currentConversationId,
           user_id: currentUserId,
-          enable_pii: togglePiiEl.checked,
+          thread_id: currentThreadId,
+          question: query,
+          enable_pii: togglePiiEl ? togglePiiEl.checked : true,
         }),
       });
 
+      // Required State: Validation & HTTP Error Handling
       if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errText}`);
+        let detail = "";
+        try {
+          const errData = await response.json();
+          if (errData && errData.detail) {
+            detail = Array.isArray(errData.detail)
+              ? errData.detail.map((d) => `${d.loc ? d.loc.slice(1).join(".") : ""}: ${d.msg}`).join("; ")
+              : String(errData.detail);
+          }
+        } catch (_) {
+          try {
+            detail = await response.text();
+          } catch (_) {
+            detail = response.statusText;
+          }
+        }
+        throw new Error(`HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
       }
 
       const reader = response.body.getReader();
@@ -442,7 +445,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         for (const line of lines) {
           if (!line.startsWith("data:")) continue;
-          const jsonStr = line.replace("data:", "").trim();
+          const jsonStr = line.replace(/^data:\s*/, "").trim();
           if (!jsonStr) continue;
 
           try {
@@ -450,44 +453,74 @@ document.addEventListener("DOMContentLoaded", () => {
             const step = data.step;
 
             if (step === "START") {
-              setBubbleThinking("Menganalisis permintaan...");
+              setBubbleThinking("Menganalisis kueri analitik...");
             } else if (step === "TITLE") {
               if (data.content) {
                 updateCurrentChatTitle(data.content);
-                loadConversations();
               }
-            } else if (step === "TOOL_CALL") {
-              setBubbleThinking("Mengeksekusi query basis data & aturan domain...");
-              liveIndicatorTextEl.textContent = "Mengeksekusi query database & aturan domain...";
+            } else if (step === "TOOL_CALL" || (data.tool_calls && data.tool_calls.length > 0)) {
+              setBubbleThinking("Mengeksekusi kueri basis data...");
+              liveIndicatorEl.classList.remove("hidden");
+              liveIndicatorTextEl.textContent = "Mengeksekusi kueri basis data...";
             } else if (step === "AIMessageChunk") {
-              aiBubble.classList.remove("is-thinking");
-              fullAiResponse += data.content || "";
-              aiBubble.innerHTML = renderMarkdown(fullAiResponse);
-              scrollToBottom();
+              if (data.content) {
+                aiBubble.classList.remove("is-thinking");
+                fullAiResponse += data.content;
+                aiBubble.innerHTML = renderMarkdown(fullAiResponse);
+                scrollToBottom();
+              }
             } else if (step === "END") {
+              receivedEnd = true;
               aiBubble.classList.remove("is-thinking");
               if (data.content) {
                 fullAiResponse = data.content;
               }
-              aiBubble.innerHTML = renderMarkdown(fullAiResponse);
+              // Required State: Successful Reply or Empty Reply
+              if (!fullAiResponse.trim()) {
+                aiBubble.innerHTML = `<div class="message-alert error" role="alert">Server mengirimkan respons kosong.</div>`;
+              } else {
+                aiBubble.innerHTML = renderMarkdown(fullAiResponse);
+              }
             } else if (step === "ERROR") {
+              receivedEnd = true;
               aiBubble.classList.remove("is-thinking");
-              aiBubble.innerHTML = `<div style="color: var(--status-error);">Peringatan: ${escapeHtml(data.content)}</div>`;
+              aiBubble.innerHTML = `<div class="message-alert error" role="alert">Kesalahan server: ${escapeHtml(data.content || "Terjadi kesalahan internal")}</div>`;
             }
           } catch (e) {
             console.warn("Parse error for chunk:", jsonStr, e);
           }
         }
       }
+
+      // Required State: Abrupt / Premature / Empty Stream Termination
+      aiBubble.classList.remove("is-thinking");
+      if (!receivedEnd) {
+        if (fullAiResponse.trim()) {
+          aiBubble.innerHTML =
+            renderMarkdown(fullAiResponse) +
+            `<div class="message-alert warning" role="alert">Aliran data terputus sebelum respons selesai.</div>`;
+        } else {
+          aiBubble.innerHTML = `<div class="message-alert error" role="alert">Koneksi streaming terputus tanpa balasan dari server.</div>`;
+        }
+      }
     } catch (err) {
-      aiBubble.innerHTML = `<div style="color: var(--status-error);">Gagal mendapatkan respons: ${escapeHtml(err.message)}</div>`;
+      // Required State: Network & Fetch Failure (Preserve partial answer if tokens received)
+      aiBubble.classList.remove("is-thinking");
+      if (fullAiResponse.trim()) {
+        aiBubble.innerHTML =
+          renderMarkdown(fullAiResponse) +
+          `<div class="message-alert error" role="alert">Aliran data terputus karena kesalahan: ${escapeHtml(err.message)}</div>`;
+      } else {
+        aiBubble.innerHTML = `<div class="message-alert error" role="alert">
+          <strong>Gagal memproses pesan:</strong><br>
+          ${escapeHtml(err.message)}
+        </div>`;
+      }
     } finally {
       isGenerating = false;
-      chatInputEl.disabled = false;
-      btnSendEl.disabled = false;
+      setFormControlsDisabled(false);
       liveIndicatorEl.classList.add("hidden");
       chatInputEl.focus();
-      loadConversations();
     }
   }
 

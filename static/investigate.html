@@ -33,11 +33,11 @@
 
       <div class="host-page-header">
         <div>
-          <h1 id="inv-header-title">Investigasi File: Memuat...</h1>
-          <p id="inv-header-sub">Peninjauan anomali identitas dan verifikasi baris data berstatus Grade D.</p>
+          <h1 id="inv-header-title">Investigasi: File belum dipilih</h1>
+          <p id="inv-header-sub">Peninjauan anomali identitas berdasarkan parameter URL. Data investigasi server belum dapat diverifikasi.</p>
         </div>
         <div class="host-header-badge" id="inv-grade-badge" style="background-color: rgba(245, 158, 11, 0.15); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3);">
-          Grade D: Manual Review
+          Status: Belum Diverifikasi
         </div>
       </div>
 
@@ -46,31 +46,30 @@
         <div class="stat-card">
           <span class="stat-label">File ID</span>
           <span class="stat-value" id="inv-file-id" style="font-size: 20px;">-</span>
-          <span class="stat-meta">ID batch registrasi</span>
+          <span class="stat-meta">Parameter URL (belum diverifikasi)</span>
         </div>
         <div class="stat-card">
           <span class="stat-label">Nama File Original</span>
           <span class="stat-value" id="inv-file-name" style="font-size: 16px; word-break: break-all;">-</span>
-          <span class="stat-meta" id="inv-file-size">-</span>
+          <span class="stat-meta" id="inv-file-size">Data ukuran belum tersedia</span>
         </div>
         <div class="stat-card">
           <span class="stat-label">Institusi Pengunggah</span>
           <span class="stat-value" id="inv-file-inst" style="font-size: 18px;">-</span>
-          <span class="stat-meta">Sumber batch data</span>
+          <span class="stat-meta">Data belum tersedia</span>
         </div>
         <div class="stat-card">
           <span class="stat-label">Status Sinkronisasi</span>
-          <span class="stat-value" id="inv-sync-status" style="font-size: 18px; color: #34d399;">SUCCESS</span>
-          <span class="stat-meta">Siap ditinjau</span>
+          <span class="stat-value" id="inv-sync-status" style="font-size: 18px; color: var(--text-secondary);">-</span>
+          <span class="stat-meta">Belum dapat diverifikasi</span>
         </div>
       </div>
 
       <!-- Reason & Investigation Findings -->
       <div class="host-hint-box" style="margin-bottom: 28px;">
-        <strong style="color: #fbbf24;">Kriteria Grade D Terdeteksi pada File Ini:</strong>
+        <strong style="color: #fbbf24;">Kriteria Umum Grade D (Belum Diverifikasi pada File Ini):</strong>
         <p style="margin-top: 4px;">
-          Sistem Synchrono mengidentifikasi bahwa elemen biodata dasar (Nama, Tempat Lahir, Tanggal Lahir, Nama Ibu) memiliki kelengkapan minimum, namun field NIK kosong atau memiliki panjang tidak valid (&lt; 16 digit).
-          Silakan verifikasi baris di bawah ini untuk menentukan status pemadanan.
+          Sistem Synchrono mengidentifikasi Grade D apabila elemen biodata dasar memiliki kelengkapan minimum namun field NIK kosong atau tidak valid (&lt; 16 digit). Deteksi anomali untuk file ini belum dapat diverifikasi karena backend data investigasi belum tersedia.
         </p>
       </div>
 
@@ -78,7 +77,7 @@
       <div style="background-color: var(--bg-host-card); border: 1px solid var(--border-host); border-radius: var(--radius-md); padding: 20px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
           <h2 style="font-size: 16px; font-weight: 600;">Daftar Baris Antrean Manual Review</h2>
-          <span id="match-count-badge" style="font-size: 12px; color: var(--text-secondary);">Memuat data...</span>
+          <span id="match-count-badge" style="font-size: 12px; color: var(--text-secondary);">API belum tersedia</span>
         </div>
 
         <div class="table-wrapper" style="margin: 0; background-color: var(--popup-bg);">
@@ -96,8 +95,9 @@
             </thead>
             <tbody id="matches-table-body">
               <tr>
-                <td colspan="7" style="padding: 24px; text-align: center; color: var(--text-muted);">
-                  Memuat baris manual review...
+                <td colspan="7" style="padding: 24px; text-align: center; color: var(--text-secondary);">
+                  <div style="font-weight: 600; margin-bottom: 6px; color: var(--text-primary);">Endpoint Data Investigasi Belum Tersedia</div>
+                  <div>Backend saat ini hanya menyediakan endpoint <code>POST /chat</code>. Layanan untuk memuat data investigasi dan peninjauan manual (<code>/api/v1/investigate</code>) belum tersedia di server.</div>
                 </td>
               </tr>
             </tbody>
@@ -133,9 +133,9 @@
         <div class="assistant-details">
           <div class="assistant-name">
             <span>Synchrono Assistant</span>
-            <span class="status-indicator-dot online" id="api-status-dot"></span>
+            <span class="status-indicator-dot" id="api-status-dot" title="Memeriksa ketersediaan endpoint POST /chat..."></span>
           </div>
-          <div class="assistant-subtitle" id="current-chat-title">Investigasi File Assistant</div>
+          <div class="assistant-subtitle" id="current-chat-title">Percakapan Baru</div>
         </div>
       </div>
 
@@ -169,18 +169,25 @@
       </div>
     </header>
 
-    <div id="history-drawer" class="history-drawer">
+    <!-- Slide-in History Drawer -->
+    <div id="history-drawer" class="history-drawer" inert>
       <div class="drawer-header">
         <h3>Riwayat Sesi Chat</h3>
-        <button id="btn-new-chat" class="btn-new-session">+ Sesi Baru</button>
+        <button id="btn-new-chat" class="btn-new-session" title="Mulai sesi baru">+ Sesi Baru</button>
       </div>
+
       <div class="drawer-user-config">
         <label for="input-user-id">User ID:</label>
-        <input type="text" id="input-user-id" value="analyst_test_user">
+        <input type="text" id="input-user-id" maxlength="36" placeholder="UUID pengguna (maks 36 karakter)">
       </div>
+
       <ul id="conversation-list" class="drawer-list">
-        <li class="drawer-empty">Memuat riwayat...</li>
+        <li class="drawer-empty">
+          <div style="font-weight: 600; margin-bottom: 4px; color: var(--text-secondary);">Riwayat Server Tidak Tersedia</div>
+          <div>API riwayat belum tersedia. Pesan pada tampilan akan hilang saat halaman dimuat ulang.</div>
+        </li>
       </ul>
+
       <div class="drawer-footer">
         <button id="btn-close-drawer" class="btn-close-drawer">Tutup Riwayat</button>
       </div>
@@ -190,15 +197,15 @@
       <div class="welcome-section" id="welcome-card">
         <div class="welcome-badge">Investigasi File Aktif</div>
         <h4>Asisten Analitik Siap Membantu</h4>
-        <p class="welcome-desc">Tanyakan analisis mengapa data pada file ini masuk Grade D atau rekomendasi tindakan review:</p>
+        <p class="welcome-desc">Tanyakan seputar kriteria klasifikasi Grade D atau prosedur peninjauan manual:</p>
         <div class="chips-container">
-          <button class="prompt-chip" data-query="Kenapa file Fav Institute ini diklasifikasikan ke Grade D?">
-            <span class="chip-title">Analisis Grade D File Ini</span>
-            <span class="chip-sub">Periksa keabsahan field biodata dan NIK</span>
+          <button class="prompt-chip" data-query="Bagaimana kriteria umum klasifikasi data Grade D?">
+            <span class="chip-title">Kriteria Grade D</span>
+            <span class="chip-sub">Penjelasan kriteria kelengkapan biodata dan NIK</span>
           </button>
-          <button class="prompt-chip" data-query="Tampilkan daftar nama baris antrean manual review untuk file fav-001?">
-            <span class="chip-title">Sampel Baris Review</span>
-            <span class="chip-sub">Lihat detail record yang perlu diverifikasi</span>
+          <button class="prompt-chip" data-query="Apa penyebab umum baris data batch masuk antrean manual review?">
+            <span class="chip-title">Penyebab Manual Review</span>
+            <span class="chip-sub">Informasi penanganan anomali data identitas</span>
           </button>
         </div>
       </div>
@@ -212,7 +219,7 @@
     <footer class="popup-footer">
       <form id="chat-form" class="input-form">
         <textarea id="chat-input" placeholder="Tanyakan seputar investigasi data..." rows="1" required></textarea>
-        <button type="submit" id="btn-send" class="btn-send">
+        <button type="submit" id="btn-send" class="btn-send" title="Kirim Pesan">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="22" y1="2" x2="11" y2="13"></line>
             <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
@@ -222,94 +229,29 @@
       <div class="input-meta-bar">
         <label class="pii-checkbox-label">
           <input type="checkbox" id="toggle-pii" checked>
-          <span>Sensor NIK (PII Masking)</span>
+          <span>Sensor NIK 16 Digit (PII Masking)</span>
         </label>
-        <span class="model-meta">Ollama Cloud: gemma4:31b-cloud</span>
+        <span class="model-meta" id="backend-endpoint-meta">POST /chat</span>
       </div>
     </footer>
   </div>
 
   <script src="/static/app.js"></script>
   <script>
-    // Client script to populate investigation file parameters and load records
-    document.addEventListener("DOMContentLoaded", async () => {
+    document.addEventListener("DOMContentLoaded", () => {
       const params = new URLSearchParams(window.location.search);
-      const fileId = params.get("file_id") || "fav-001";
-      const fileName = params.get("name") || "peserta_diklat_fav.parquet";
-      const grade = params.get("grade") || "D";
+      const fileId = params.get("file_id");
+      const fileName = params.get("name");
+      const grade = params.get("grade");
 
-      document.getElementById("inv-header-title").textContent = `Investigasi: ${fileName}`;
-      document.getElementById("inv-file-id").textContent = fileId;
-      document.getElementById("inv-file-name").textContent = fileName;
-      document.getElementById("inv-grade-badge").textContent = `Grade ${grade}: Manual Review`;
-
-      try {
-        const res = await fetch(`/api/v1/investigate/${encodeURIComponent(fileId)}`);
-        if (!res.ok) throw new Error("Gagal mengambil data investigasi dari server");
-        const data = await res.json();
-
-        if (data.file) {
-          document.getElementById("inv-file-inst").textContent = data.file.institution_name || "Fav Institute";
-          document.getElementById("inv-file-size").textContent = `${data.file.row_count || 15000} record diproses`;
-        }
-
-        const tbody = document.getElementById("matches-table-body");
-        const countBadge = document.getElementById("match-count-badge");
-        tbody.innerHTML = "";
-
-        if (!data.manual_matches || data.manual_matches.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="7" style="padding: 24px; text-align: center; color: var(--text-secondary);">Tidak ada baris antrean manual review untuk file ini.</td></tr>`;
-          countBadge.textContent = "0 baris perlu review";
-          return;
-        }
-
-        countBadge.textContent = `${data.manual_matches.length} baris perlu review`;
-
-        data.manual_matches.forEach((row) => {
-          const tr = document.createElement("tr");
-          tr.style.borderBottom = "1px solid rgba(255, 255, 255, 0.05)";
-          tr.innerHTML = `
-            <td style="padding: 10px 14px; font-family: var(--font-mono); font-size: 12px; color: #93c5fd;">${escape(row.id_incoming || "-")}</td>
-            <td style="padding: 10px 14px; font-weight: 600; color: #ffffff;">${escape(row.nama_incoming || "-")}</td>
-            <td style="padding: 10px 14px; color: var(--text-secondary);">${escape(row.tempat_lahir_incoming || "-")}, ${escape(row.tanggal_lahir_incoming || "-")}</td>
-            <td style="padding: 10px 14px; color: var(--text-secondary);">${escape(row.jenis_kelamin_incoming || "-")}</td>
-            <td style="padding: 10px 14px; color: var(--text-secondary);">${escape(row.nama_ibu_incoming || "-")}</td>
-            <td style="padding: 10px 14px; color: #f59e0b; font-size: 12px; line-height: 1.4;">${escape(row.reason || "-")}</td>
-            <td style="padding: 10px 14px; text-align: center; white-space: nowrap;">
-              <button class="btn-action-approve" style="background-color: #10b981; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; margin-right: 4px;">Setujui</button>
-              <button class="btn-action-reject" style="background-color: #ef4444; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;">Tolak</button>
-            </td>
-          `;
-
-          const btnApprove = tr.querySelector(".btn-action-approve");
-          const btnReject = tr.querySelector(".btn-action-reject");
-
-          btnApprove.addEventListener("click", () => {
-            btnApprove.textContent = "Disetujui ✓";
-            btnApprove.disabled = true;
-            btnReject.style.display = "none";
-          });
-
-          btnReject.addEventListener("click", () => {
-            btnReject.textContent = "Ditolak ✗";
-            btnReject.disabled = true;
-            btnApprove.style.display = "none";
-          });
-
-          tbody.appendChild(tr);
-        });
-      } catch (err) {
-        document.getElementById("matches-table-body").innerHTML = `
-          <tr><td colspan="7" style="padding: 24px; text-align: center; color: var(--status-error);">Gagal memuat data: ${escape(err.message)}</td></tr>
-        `;
-      }
-
-      function escape(str) {
-        if (!str) return "";
-        return String(str).replace(/[&<>"']/g, (m) => ({
-          "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
-        })[m]);
-      }
+      document.getElementById("inv-header-title").textContent = fileName
+        ? `Investigasi: ${fileName}`
+        : "Investigasi: File belum dipilih";
+      document.getElementById("inv-file-id").textContent = fileId || "-";
+      document.getElementById("inv-file-name").textContent = fileName || "File belum dipilih";
+      document.getElementById("inv-grade-badge").textContent = grade
+        ? `Grade ${grade} (Parameter URL)`
+        : "Status: Belum Diverifikasi";
     });
   </script>
 </body>

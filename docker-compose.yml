@@ -1,33 +1,18 @@
-# ==============================================================================
-# Synchrono AI Chatbot Platform - Complete Docker Compose
-# ==============================================================================
-# Usage:
-#   Full Stack (API + DB):       docker compose up -d --build
-#   Database Only (Local Dev):   docker compose up -d postgres-chatbot
-#   Stop All Containers:         docker compose down
-#   Stop & Wipe Volumes:         docker compose down -v
-# ==============================================================================
-
 services:
-  # ----------------------------------------------------------------------------
-  # 1. PostgreSQL Conversation & Chat History Storage
-  # ----------------------------------------------------------------------------
   postgres-chatbot:
     image: postgres:16-alpine
     container_name: synchrono-chatbot-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-synchrono}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-synchrono123}
-      POSTGRES_DB: ${POSTGRES_DB:-synchrono_chatbot}
+      POSTGRES_USER: ${INTERNAL_USER:-synchrono}
+      POSTGRES_PASSWORD: ${INTERNAL_PASSWORD:?Set INTERNAL_PASSWORD in .env}
+      POSTGRES_DB: ${INTERNAL_DATABASE:-synchrono_chatbot}
     ports:
-      # Host port 5433 avoids collisions with existing host/WSL PostgreSQL on 5432
-      - "${POSTGRES_PORT:-5433}:5432"
+      - "127.0.0.1:${INTERNAL_PORT:-5433}:5432"
     volumes:
       - postgres_chatbot_data:/var/lib/postgresql/data
-      - ./scripts/init_chatbot_db.sql:/docker-entrypoint-initdb.d/01_init_chatbot_db.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-synchrono} -d ${POSTGRES_DB:-synchrono_chatbot}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -35,32 +20,21 @@ services:
     networks:
       - synchrono-network
 
-  # ----------------------------------------------------------------------------
-  # 2. Synchrono AI Chatbot FastAPI & Reasoning Agent Service
-  # ----------------------------------------------------------------------------
   chatbot-api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: synchrono-chatbot-api
     restart: unless-stopped
+    profiles:
+      - app
     ports:
-      - "${PORT:-8000}:8000"
+      - "127.0.0.1:${PORT:-8000}:8000"
     env_file:
       - .env
     environment:
-      # Automatically route containerized API to internal Docker PostgreSQL hostname
-      - POSTGRES_URI=postgresql://${POSTGRES_USER:-synchrono}:${POSTGRES_PASSWORD:-synchrono123}@postgres-chatbot:5432/${POSTGRES_DB:-synchrono_chatbot}
-      - PORT=8000
-      - HOST=0.0.0.0
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://ollama.com/v1}
-      - OPENAI_MODEL_NAME=${OPENAI_MODEL_NAME:-gemma4:31b-cloud}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-ollama}
-      - ANALYTICS_DB_URI=${ANALYTICS_DB_URI:-}
-      - USE_OPIK=${USE_OPIK:-false}
-      - OPIK_API_KEY=${OPIK_API_KEY:-}
-      - OPIK_PROJECT_NAME=${OPIK_PROJECT_NAME:-synchrono-chatbot}
-      - CORS_ORIGINS=${CORS_ORIGINS:-["*"]}
+      INTERNAL_HOST: postgres-chatbot
+      INTERNAL_PORT: 5432
     volumes:
       - ./data:/app/data
     depends_on:
@@ -75,9 +49,6 @@ services:
     networks:
       - synchrono-network
 
-# ------------------------------------------------------------------------------
-# Networks & Volumes
-# ------------------------------------------------------------------------------
 networks:
   synchrono-network:
     name: synchrono_network
@@ -86,3 +57,5 @@ networks:
 volumes:
   postgres_chatbot_data:
     name: synchrono_chatbot_data
+
+  

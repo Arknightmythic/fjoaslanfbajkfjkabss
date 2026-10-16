@@ -14,7 +14,7 @@
         <div class="host-logo">S</div>
         <div class="host-title">
           <span class="host-name">Synchrono</span>
-          <span class="host-sub">Batch Preview (Grade A)</span>
+          <span class="host-sub">Batch Preview</span>
         </div>
       </div>
       <div class="host-nav-links">
@@ -33,11 +33,11 @@
 
       <div class="host-page-header">
         <div>
-          <h1 id="prev-header-title">Pratinjau File: Memuat...</h1>
-          <p>File ini telah terverifikasi dengan tingkat kelengkapan tertinggi (100% NIK valid).</p>
+          <h1 id="prev-header-title">Pratinjau: File belum dipilih</h1>
+          <p>Ringkasan pratinjau batch berdasarkan parameter URL. Validasi data server belum dapat diverifikasi.</p>
         </div>
-        <div class="host-header-badge" style="background-color: rgba(16, 185, 129, 0.15); color: #34d399; border-color: rgba(16, 185, 129, 0.3);">
-          Grade A: Auto-Matched
+        <div class="host-header-badge" id="prev-grade-badge" style="background-color: rgba(148, 163, 184, 0.15); color: #94a3b8; border-color: rgba(148, 163, 184, 0.3);">
+          Status: Belum Diverifikasi
         </div>
       </div>
 
@@ -45,29 +45,29 @@
         <div class="stat-card">
           <span class="stat-label">File ID</span>
           <span class="stat-value" id="prev-file-id" style="font-size: 20px;">-</span>
-          <span class="stat-meta">ID batch registrasi</span>
+          <span class="stat-meta">Parameter URL (belum diverifikasi)</span>
         </div>
         <div class="stat-card">
           <span class="stat-label">Nama File Original</span>
           <span class="stat-value" id="prev-file-name" style="font-size: 16px; word-break: break-all;">-</span>
-          <span class="stat-meta" id="prev-file-rows">-</span>
+          <span class="stat-meta" id="prev-file-rows">Jumlah baris belum tersedia</span>
         </div>
         <div class="stat-card">
           <span class="stat-label">Tingkat Otomasi</span>
-          <span class="stat-value" style="font-size: 22px; color: #34d399;">100%</span>
-          <span class="stat-meta">Seluruh NIK valid 16 digit</span>
+          <span class="stat-value" id="prev-automation-rate" style="font-size: 20px; color: var(--text-secondary);">-</span>
+          <span class="stat-meta">Data belum tersedia</span>
         </div>
         <div class="stat-card">
           <span class="stat-label">Status Sinkronisasi</span>
-          <span class="stat-value" style="font-size: 20px; color: #34d399;">SUCCESS</span>
-          <span class="stat-meta">Selesai terpadankan</span>
+          <span class="stat-value" id="prev-sync-status" style="font-size: 18px; color: var(--text-secondary);">-</span>
+          <span class="stat-meta">Belum dapat diverifikasi</span>
         </div>
       </div>
 
       <div class="host-hint-box" style="margin-bottom: 28px;">
-        <strong style="color: #34d399;">Kualitas Data Grade A Terpenuhi:</strong>
+        <strong style="color: var(--brand-blue);">Status Verifikasi Pratinjau:</strong>
         <p style="margin-top: 4px;">
-          Seluruh record pada batch ini telah berhasil dipadankan ke master identity tanpa memerlukan peninjauan manual.
+          Rincian baris dan hasil pemadanan data belum dapat diverifikasi karena backend saat ini tidak menyediakan API pratinjau batch. Informasi file di atas bersumber dari parameter URL.
         </p>
       </div>
     </main>
@@ -85,17 +85,155 @@
     <span class="fab-pulse"></span>
   </button>
 
+  <!-- Floating Chat Window (Pop-up Modal / Drawer) -->
+  <div id="chat-popup" class="chat-popup">
+    <!-- Pop-up Header -->
+    <header class="popup-header">
+      <div class="header-main">
+        <div class="assistant-avatar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+            <polyline points="2 17 12 22 22 17"></polyline>
+            <polyline points="2 12 12 17 22 12"></polyline>
+          </svg>
+        </div>
+        <div class="assistant-details">
+          <div class="assistant-name">
+            <span>Synchrono Assistant</span>
+            <span class="status-indicator-dot" id="api-status-dot" title="Memeriksa ketersediaan endpoint POST /chat..."></span>
+          </div>
+          <div class="assistant-subtitle" id="current-chat-title">Percakapan Baru</div>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <!-- Toggle History Button -->
+        <button id="btn-toggle-history" class="header-btn" title="Lihat Riwayat Sesi Percakapan" aria-label="Riwayat Percakapan">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+        </button>
+
+        <!-- Toggle Fullscreen Button -->
+        <button id="btn-toggle-fullscreen" class="header-btn" title="Perbesar ke Layar Penuh" aria-label="Layar Penuh">
+          <svg class="icon-expand" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 3 21 3 21 9"></polyline>
+            <polyline points="9 21 3 21 3 15"></polyline>
+            <line x1="21" y1="3" x2="14" y2="10"></line>
+            <line x1="3" y1="21" x2="10" y2="14"></line>
+          </svg>
+          <svg class="icon-collapse hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="4 14 10 14 10 20"></polyline>
+            <polyline points="20 10 14 10 14 4"></polyline>
+            <line x1="14" y1="10" x2="21" y2="3"></line>
+            <line x1="10" y1="14" x2="3" y2="21"></line>
+          </svg>
+        </button>
+
+        <!-- Minimize / Close Button -->
+        <button id="btn-close-popup" class="header-btn" title="Tutup / Perkecil Pop-up" aria-label="Tutup Pop-up">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Slide-in History Drawer -->
+    <div id="history-drawer" class="history-drawer" inert>
+      <div class="drawer-header">
+        <h3>Riwayat Sesi Chat</h3>
+        <button id="btn-new-chat" class="btn-new-session" title="Mulai sesi baru">+ Sesi Baru</button>
+      </div>
+
+      <div class="drawer-user-config">
+        <label for="input-user-id">User ID:</label>
+        <input type="text" id="input-user-id" maxlength="36" placeholder="UUID pengguna (maks 36 karakter)">
+      </div>
+
+      <ul id="conversation-list" class="drawer-list">
+        <li class="drawer-empty">
+          <div style="font-weight: 600; margin-bottom: 4px; color: var(--text-secondary);">Riwayat Server Tidak Tersedia</div>
+          <div>API riwayat belum tersedia. Pesan pada tampilan akan hilang saat halaman dimuat ulang.</div>
+        </li>
+      </ul>
+
+      <div class="drawer-footer">
+        <button id="btn-close-drawer" class="btn-close-drawer">Tutup Riwayat</button>
+      </div>
+    </div>
+
+    <!-- Messages Container -->
+    <section class="popup-body" id="messages-container">
+      <div class="welcome-section" id="welcome-card">
+        <div class="welcome-badge">Pratinjau File</div>
+        <h4>Asisten Analitik Siap Membantu</h4>
+        <p class="welcome-desc">Tanyakan analisis atau aturan pemadanan data terkait file batch:</p>
+
+        <div class="chips-container">
+          <button class="prompt-chip" data-query="Bagaimana kriteria file batch untuk klasifikasi Grade A?">
+            <span class="chip-title">Kriteria Pemadanan Grade A</span>
+            <span class="chip-sub">Periksa standar kelengkapan dan validasi NIK</span>
+          </button>
+          <button class="prompt-chip" data-query="Bagaimana aturan validasi format NIK 16 digit pada sistem?">
+            <span class="chip-title">Validasi Format NIK</span>
+            <span class="chip-sub">Penjelasan aturan validasi NIK 16 digit</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Active Tool Status Badge -->
+    <div id="live-indicator" class="live-indicator hidden">
+      <div class="indicator-spinner"></div>
+      <span id="live-indicator-text">Sedang memproses...</span>
+    </div>
+
+    <!-- Pop-up Input Bar -->
+    <footer class="popup-footer">
+      <form id="chat-form" class="input-form">
+        <textarea id="chat-input" placeholder="Tanyakan status file, grade, duplikasi, atau aturan matching..." rows="1" required></textarea>
+        <button type="submit" id="btn-send" class="btn-send" title="Kirim Pesan">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </form>
+      <div class="input-meta-bar">
+        <label class="pii-checkbox-label">
+          <input type="checkbox" id="toggle-pii" checked>
+          <span>Sensor NIK 16 Digit (PII Masking)</span>
+        </label>
+        <span class="model-meta" id="backend-endpoint-meta">POST /chat</span>
+      </div>
+    </footer>
+  </div>
+
   <script src="/static/app.js"></script>
   <script>
     document.addEventListener("DOMContentLoaded", () => {
       const params = new URLSearchParams(window.location.search);
-      const fileId = params.get("file_id") || "telkom-001";
-      const fileName = params.get("name") || "pegawai_telkomsel_q1.parquet";
+      const fileId = params.get("file_id");
+      const fileName = params.get("name");
+      const rows = params.get("rows");
+      const grade = params.get("grade");
 
-      document.getElementById("prev-header-title").textContent = `Pratinjau: ${fileName}`;
-      document.getElementById("prev-file-id").textContent = fileId;
-      document.getElementById("prev-file-name").textContent = fileName;
-      document.getElementById("prev-file-rows").textContent = "50.000 record terpadankan";
+      document.getElementById("prev-header-title").textContent = fileName
+        ? `Pratinjau: ${fileName}`
+        : "Pratinjau: File belum dipilih";
+      document.getElementById("prev-file-id").textContent = fileId || "-";
+      document.getElementById("prev-file-name").textContent = fileName || "File belum dipilih";
+      document.getElementById("prev-file-rows").textContent = rows
+        ? `${rows} record (Parameter URL)`
+        : "Jumlah baris belum tersedia";
+      if (document.getElementById("prev-grade-badge")) {
+        document.getElementById("prev-grade-badge").textContent = grade
+          ? `Grade ${grade} (Parameter URL)`
+          : "Status: Belum Diverifikasi";
+      }
     });
   </script>
 </body>

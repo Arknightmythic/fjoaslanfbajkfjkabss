@@ -115,8 +115,9 @@ Best for active backend development with hot-reload (`--reload`):
    ```
 3. **Launch the FastAPI development server:**
    ```bash
-   uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
+   uv run uvicorn src.api.server:app --reload --host 0.0.0.0 --port 8000
    ```
+   *(Note: `main:app` is supported for backward compatibility)*
 
 ---
 
@@ -130,7 +131,7 @@ If Docker is unavailable on the machine, the system can operate completely offli
    ```
 2. Run the server directly:
    ```bash
-   uv run uvicorn main:app --reload --port 8000
+   uv run uvicorn src.api.server:app --reload --port 8000
    ```
    *The system detects that PostgreSQL is offline, automatically initializes local SQLite files in `data/`, seeds in-memory analytical datasets, and serves traffic without error.*
 
@@ -186,16 +187,18 @@ Open your browser and navigate to:
 ### 3. Unit Test Suite Execution
 Execute the automated test suite across all routers and middleware:
 ```bash
-uv run pytest tests/ -v
-# Output: 7 passed
+uv run pytest -v
 ```
+* Default `testpaths = ["src/tests"]` and `addopts = "-m 'not eval'"` run offline/unit tests with isolated SQLite conversation storage and in-memory mock analytics. Opik telemetry is disabled during tests.
 
-### 4. Trajectory-Level Evaluation Harness
-Run the 14-scenario evaluation harness:
+### 4. Trajectory-Level Live Evaluation Harness
+Run the 14-scenario trajectory evaluation harness against a live LLM:
 ```bash
-uv run python evals/run_eval.py
-# Output: 14 / 14 Passed (100% pass rate)
+uv run pytest -m eval -v
 ```
+*(Optional: `--junitxml=pytest-evals.xml` to export standard test results)*
+* Evaluates intermediate tool calling, SQL generation, factuality, PII safety, and contextual recommendations across all 14 scenarios.
+* Executes real model calls and consumes API quota. Opik is disabled in tests.
 
 ---
 

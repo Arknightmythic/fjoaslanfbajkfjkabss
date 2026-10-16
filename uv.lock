@@ -148,6 +148,20 @@ wheels = [
 ]
 
 [[package]]
+name = "alembic"
+version = "1.20.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "mako" },
+    { name = "sqlalchemy" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ed/aa/02910bdb8e2f1444f6654d5b296cd827d126f82209050ee7b1000f92ac4b/alembic-1.20.0.tar.gz", hash = "sha256:db505480647bc60386c5369402f4a57a506b7539c9e9ef5e270d45cbbe4939bf", size = 2093272, upload-time = "2026-09-11T19:09:11.126Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3f/27/78a89b55b0904d222183164e079b4ca56208e94eff1d35ad1f1ad5be9b06/alembic-1.20.0-py3-none-any.whl", hash = "sha256:77eb101048d95f982c0353e9233404889dcd7a6fc244c107836c0e2fc9cf7d9d", size = 268719, upload-time = "2026-09-11T19:09:12.88Z" },
+]
+
+[[package]]
 name = "annotated-doc"
 version = "0.0.5"
 source = { registry = "https://pypi.org/simple" }
@@ -1123,15 +1137,30 @@ wheels = [
 
 [[package]]
 name = "langgraph-checkpoint"
-version = "4.2.0"
+version = "4.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
     { name = "ormsgpack" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/dc/e1/089c4c9e0a2fec7f883f82ae8e6a727138d50074cfeb6644bc2d13b1019b/langgraph_checkpoint-4.2.0.tar.gz", hash = "sha256:51a593b6bee684b0818e5d6e58e28ab340c6db7794575056ce7bd1b746a84ed7", size = 180239, upload-time = "2026-08-07T20:05:03.756Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0f/69/31fdbdc65a85bbd6178afa193c772bb926620f47b4869638bc2bc80afaaa/langgraph_checkpoint-4.3.0.tar.gz", hash = "sha256:c75965d84cc2c1d549163e910a15bcb577758001b141619d05297c463280b018", size = 182652, upload-time = "2026-10-12T22:26:31.478Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/05/71/3b475f09bd57d3a5649792c66353312b4432afd843f301739dfcebd157f0/langgraph_checkpoint-4.2.0-py3-none-any.whl", hash = "sha256:0547fd228935a0b758865de3a3d6d7a2537c308895d0f9ab092ce9151b5da942", size = 56833, upload-time = "2026-08-07T20:05:02.655Z" },
+    { url = "https://files.pythonhosted.org/packages/1f/0c/84747e340bf4f29291c84cdd5733fc8d0a822f3d33bb24e664a18afa4a7c/langgraph_checkpoint-4.3.0-py3-none-any.whl", hash = "sha256:bedfafe2f997ded60e4fa593e79f56f436a6e45586392dc382aa810d0c751c64", size = 58063, upload-time = "2026-10-12T22:26:30.429Z" },
+]
+
+[[package]]
+name = "langgraph-checkpoint-postgres"
+version = "3.1.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langgraph-checkpoint" },
+    { name = "orjson" },
+    { name = "psycopg" },
+    { name = "psycopg-pool" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/78/bf/d0ab4d6e4d61952de2f77044d7407b7ce09e07d53e7bb448cf9df55c35e5/langgraph_checkpoint_postgres-3.1.3.tar.gz", hash = "sha256:a152a9c0c3d5931bc949b64e01e8c7da20be57a32aa754626446318e90a07650", size = 158122, upload-time = "2026-10-12T23:05:19.759Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/41/42/659106ed829ee026144e32ddd589735f978d2ed09681020e5965cdfca04c/langgraph_checkpoint_postgres-3.1.3-py3-none-any.whl", hash = "sha256:050ae583223e24d97747f27b9e06e7345bf13c972f1fb6ed33bb3d1f9c11cee4", size = 52048, upload-time = "2026-10-12T23:05:18.854Z" },
 ]
 
 [[package]]
@@ -1217,6 +1246,31 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/95/56/86fc4e0ee98b01d5630a00c1329cdaad5b6638c0f05af11946b56a75411d/litellm-1.103.1-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:20bfc551459c3bd6bfc05f20bc5073963d06fe08db4596c922594d766bf23db4", size = 27614114, upload-time = "2026-09-29T23:36:19.132Z" },
     { url = "https://files.pythonhosted.org/packages/ab/fd/bf89f44ed3d42eddab2696b435fa34c9c36147e1173b7d69fd54d832aa15/litellm-1.103.1-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:a8d5a89228884fdb59d89cbf8d53c59d7aa1be33de3e9ac170258d49f90c2000", size = 28193479, upload-time = "2026-09-29T23:36:22.174Z" },
     { url = "https://files.pythonhosted.org/packages/22/f8/da1d10bf9a9018d522150c6d35a6a3d431267f25fb82658b190f055d9c8c/litellm-1.103.1-cp310-abi3-win_amd64.whl", hash = "sha256:133523f23f4ef9aa9fd925d4e9a56aab55cb8a3ad76fd69eecd6e990cbe5ef70", size = 28137693, upload-time = "2026-09-29T23:36:25.154Z" },
+]
+
+[[package]]
+name = "loguru"
+version = "0.7.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "win32-setctime", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3a/05/a1dae3dffd1116099471c643b8924f5aa6524411dc6c63fdae648c4f1aca/loguru-0.7.3.tar.gz", hash = "sha256:19480589e77d47b8d85b2c827ad95d49bf31b0dcde16593892eb51dd18706eb6", size = 63559, upload-time = "2024-12-06T11:20:56.608Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0c/29/0348de65b8cc732daa3e33e67806420b2ae89bdce2b04af740289c5c6c8c/loguru-0.7.3-py3-none-any.whl", hash = "sha256:31a33c10c8e1e10422bfd431aeb5d351c7cf7fa671e3c4df004162264b28220c", size = 61595, upload-time = "2024-12-06T11:20:54.538Z" },
+]
+
+[[package]]
+name = "mako"
+version = "1.4.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "markupsafe" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5a/09/e07c4b5579a79f4b16f8d4f29f6c54514ac787c4ad506b8c4f28a0e6b0bf/mako-1.4.3.tar.gz", hash = "sha256:cd6537fe88d5fec315c55c2f8529bc4ce7a9a352ad7db3eeaa6a66e2dd4ec37a", size = 412799, upload-time = "2026-09-22T20:54:31.509Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6d/a0/053d6af3e8f871e0073b4a36732d9e65be77a72e5434c31b94f6af78a6bb/mako-1.4.3-py3-none-any.whl", hash = "sha256:723296007c870bfd6b3f0c3230dba7198096e5269297ebf5e4eff9e7ffa39d4f", size = 80164, upload-time = "2026-09-22T20:54:33.128Z" },
 ]
 
 [[package]]
@@ -1894,6 +1948,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/5d/0f/62113dc6b1df65983a1f2fc816c04b1edfa22f2ae9d4abee74ed267f4a96/psycopg_binary-3.3.6-cp315-cp315-musllinux_1_2_riscv64.whl", hash = "sha256:c7753871eb57e6a5f4646f6168590c6653073dea5e9e720b201c8875332df4c8", size = 4027121, upload-time = "2026-09-18T13:22:38.334Z" },
     { url = "https://files.pythonhosted.org/packages/5d/d5/cf0cbd1ea5a7d8167fe2c6953efde19101f7b193bd61a23e6d622ad6854c/psycopg_binary-3.3.6-cp315-cp315-musllinux_1_2_x86_64.whl", hash = "sha256:303732e798fe6729f8e12021b9c96107df8e95ecec4dd487c67b98ec2a59435e", size = 4336388, upload-time = "2026-09-18T13:22:45.576Z" },
     { url = "https://files.pythonhosted.org/packages/98/33/e2a5b36edf8aa422f6fa4b894756eb33dc93b36df5f65121280bb8b929c4/psycopg_binary-3.3.6-cp315-cp315-win_amd64.whl", hash = "sha256:2f122603f36050937982abf9668d8bc4769a79f7c93a65013b1c49f1cab7b56b", size = 3756154, upload-time = "2026-09-18T13:22:51.283Z" },
+]
+
+[[package]]
+name = "psycopg-pool"
+version = "3.3.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/74/5e/c0664b968b102ff68b811d999c728546c48d5c1eec03e3bbaf88c0cb4472/psycopg_pool-3.3.3.tar.gz", hash = "sha256:df87b5d9d0ad7db37f6cdad4fa8ce113d250f5997f6db38e9a99192fb67f9e1d", size = 32006, upload-time = "2026-09-22T15:53:24.947Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5d/b4/452c6607a0f479465cd8a9b0d9956919fcb150050c1f83f9f11e6b8ee8dc/psycopg_pool-3.3.3-py3-none-any.whl", hash = "sha256:9b9cd6a4fcec47a410f7e82d408540e7f77b478509e91b44c1a5457a13e5ff37", size = 40304, upload-time = "2026-09-22T15:53:23.712Z" },
 ]
 
 [[package]]
@@ -2683,6 +2749,15 @@ wheels = [
 ]
 
 [[package]]
+name = "sqlglot"
+version = "30.23.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0c/40/4afe7d21cdf3dbb5a7529ea33a0e07055081fb3d37bc0550e7c2278d6ec0/sqlglot-30.23.0.tar.gz", hash = "sha256:34b5b62fa4cbf042ee6b9e829236577b2f8db4538dd20007de2aa5383c92e845", size = 6108071, upload-time = "2026-10-14T21:48:38.209Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2d/73/9e749f3e57ca471bf663eb6d51fbe79b9921c5b7376706cd1cac999c8e2e/sqlglot-30.23.0-py3-none-any.whl", hash = "sha256:b5a645722cb4c6b649e9131b94830d9df9a557e87be63713179d848320f2baa1", size = 783709, upload-time = "2026-10-14T21:48:36.327Z" },
+]
+
+[[package]]
 name = "starlette"
 version = "1.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2700,6 +2775,7 @@ name = "synchrono-chatbot"
 version = "1.0.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "alembic" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "langchain" },
@@ -2707,6 +2783,8 @@ dependencies = [
     { name = "langchain-ollama" },
     { name = "langchain-openai" },
     { name = "langgraph" },
+    { name = "langgraph-checkpoint-postgres" },
+    { name = "loguru" },
     { name = "opik" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic" },
@@ -2715,11 +2793,13 @@ dependencies = [
     { name = "pytest-asyncio" },
     { name = "python-dotenv" },
     { name = "sqlalchemy" },
+    { name = "sqlglot" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "alembic", specifier = ">=1.20.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "langchain", specifier = ">=1.4.3" },
@@ -2727,6 +2807,8 @@ requires-dist = [
     { name = "langchain-ollama", specifier = ">=1.1.0" },
     { name = "langchain-openai", specifier = ">=1.6.6" },
     { name = "langgraph", specifier = ">=1.2.12" },
+    { name = "langgraph-checkpoint-postgres", specifier = ">=3.1.3" },
+    { name = "loguru", specifier = ">=0.7.3" },
     { name = "opik", specifier = ">=2.2.85" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
@@ -2735,6 +2817,7 @@ requires-dist = [
     { name = "pytest-asyncio", specifier = ">=0.24.0" },
     { name = "python-dotenv", specifier = ">=1.2.0" },
     { name = "sqlalchemy", specifier = ">=2.0.35" },
+    { name = "sqlglot", specifier = ">=30.23.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
 ]
 
@@ -3273,6 +3356,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/37/c3/48e2c03d2bd79bb45948841c592d24156312dd5f58cdf8f549febe652fb6/websockets-16.1.1-pp311-pypy311_pp73-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:b6b9dadbef0cccd9f4c4ee96b08898afa73e26803bbe0f6aeb5bb12b0074206d", size = 179190, upload-time = "2026-07-17T22:51:01.129Z" },
     { url = "https://files.pythonhosted.org/packages/2d/3f/73e511ecf2496ceac57dd4ed8388efe2bcf0769338a2dbf242c8366ae87e/websockets-16.1.1-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:56cd5fc4f10a9ea8aa0804bddb7b42506cf9e136046f3b4c27de8fec9e2ecba5", size = 180330, upload-time = "2026-07-17T22:51:02.603Z" },
     { url = "https://files.pythonhosted.org/packages/be/4d/2d0d67834092e354d2b0498f014a41249a89556bc406cf86f3e1557bb463/websockets-16.1.1-py3-none-any.whl", hash = "sha256:6abbd3e82c731c8e531714466acd5d87b5e88ac3243465337ba71d68e23ae7e3", size = 173814, upload-time = "2026-07-17T22:51:04.184Z" },
+]
+
+[[package]]
+name = "win32-setctime"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b3/8f/705086c9d734d3b663af0e9bb3d4de6578d08f46b1b101c2442fd9aecaa2/win32_setctime-1.2.0.tar.gz", hash = "sha256:ae1fdf948f5640aae05c511ade119313fb6a30d7eabe25fef9764dca5873c4c0", size = 4867, upload-time = "2024-12-07T15:28:28.314Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e1/07/c6fe3ad3e685340704d314d765b7912993bcb8dc198f0e7a89382d37974b/win32_setctime-1.2.0-py3-none-any.whl", hash = "sha256:95d644c4e708aba81dc3704a116d8cbc974d70b3bdb8be1d150e36be6e9d1390", size = 4083, upload-time = "2024-12-07T15:28:26.465Z" },
 ]
 
 [[package]]
