@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
+from loguru import logger
 
 from src.api.routers import chat, ui
 
@@ -27,6 +28,8 @@ if ui.STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(ui.STATIC_DIR)), name="static")
     app.include_router(ui.router)
 
-@app.get("/")
+
+@app.get("/api/v1/health")
 async def health_check():
-    return {"status": "ok", "message": "Synchrono Chatbot API is running."}
+    return {"status": "healthy", "service": "synchrono-chatbot"}
+

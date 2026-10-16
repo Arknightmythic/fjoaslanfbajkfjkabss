@@ -26,8 +26,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const liveIndicatorTextEl = document.getElementById("live-indicator-text");
   const togglePiiEl = document.getElementById("toggle-pii");
 
-  // DOM Elements - Connection & User Config
-  const inputConnectionIdEl = document.getElementById("input-connection-id");
+  // DOM Elements - User Config
   const inputUserIdEl = document.getElementById("input-user-id");
   const conversationListEl = document.getElementById("conversation-list");
   const btnNewChatEl = document.getElementById("btn-new-chat");
@@ -35,7 +34,6 @@ document.addEventListener("DOMContentLoaded", () => {
   // State Management
   let currentThreadId = generateUUID();
   let currentUserId = initUserId();
-  let currentConnectionId = initConnectionId();
   let isGenerating = false;
 
   // Configure Marked Markdown Renderer
@@ -137,37 +135,6 @@ document.addEventListener("DOMContentLoaded", () => {
       inputUserIdEl.value = savedId;
     }
     return savedId;
-  }
-
-  function initConnectionId() {
-    let savedConnId = "";
-    try {
-      savedConnId = (localStorage.getItem("synchrono_connection_id") || "").trim();
-    } catch (_) {}
-    if (inputConnectionIdEl) {
-      inputConnectionIdEl.value = savedConnId;
-    }
-    return savedConnId;
-  }
-
-  if (inputConnectionIdEl) {
-    inputConnectionIdEl.addEventListener("input", (e) => {
-      currentConnectionId = (e.target.value || "").trim();
-      try {
-        localStorage.setItem("synchrono_connection_id", currentConnectionId);
-      } catch (_) {}
-      if (currentConnectionId) {
-        inputConnectionIdEl.classList.remove("input-error");
-        inputConnectionIdEl.removeAttribute("aria-invalid");
-        inputConnectionIdEl.removeAttribute("aria-describedby");
-        const existingAlert = document.getElementById("connection-id-error");
-        if (existingAlert) {
-          const row = existingAlert.closest(".message-row");
-          if (row) row.remove();
-          else existingAlert.remove();
-        }
-      }
-    });
   }
 
   if (inputUserIdEl) {
@@ -347,11 +314,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     chatInputEl.value = "";
     chatInputEl.style.height = "auto";
-    if (inputConnectionIdEl) {
-      inputConnectionIdEl.classList.remove("input-error");
-      inputConnectionIdEl.removeAttribute("aria-invalid");
-      inputConnectionIdEl.removeAttribute("aria-describedby");
-    }
     chatInputEl.focus();
     updateHistoryDrawer();
   }
@@ -396,40 +358,12 @@ document.addEventListener("DOMContentLoaded", () => {
     btnSendEl.disabled = disabled;
     if (btnNewChatEl) btnNewChatEl.disabled = disabled;
     if (inputUserIdEl) inputUserIdEl.disabled = disabled;
-    if (inputConnectionIdEl) inputConnectionIdEl.disabled = disabled;
     if (togglePiiEl) togglePiiEl.disabled = disabled;
   }
 
   // ─── Real-time SSE Chat Streaming (POST /chat) ─────────────────
 
   async function sendMessage(query) {
-    const connId = (inputConnectionIdEl ? inputConnectionIdEl.value : currentConnectionId).trim();
-
-    // Required State: Connection Configuration Missing
-    if (!connId) {
-      if (inputConnectionIdEl) {
-        inputConnectionIdEl.classList.add("input-error");
-        inputConnectionIdEl.setAttribute("aria-invalid", "true");
-        inputConnectionIdEl.setAttribute("aria-describedby", "connection-id-error");
-        inputConnectionIdEl.focus();
-      }
-      const existingAlert = document.getElementById("connection-id-error");
-      if (existingAlert) {
-        const row = existingAlert.closest(".message-row");
-        if (row) row.remove();
-        else existingAlert.remove();
-      }
-      appendMessageBubble(
-        "ai",
-        `<div id="connection-id-error" class="message-alert warning" role="alert">
-          <strong>Konfigurasi koneksi belum diisi.</strong><br>
-          Kolom <code>connection_id</code> wajib diisi untuk menganalisis data. Masukkan ID koneksi database pada kolom di bawah.
-        </div>`,
-        false
-      );
-      return;
-    }
-
     isGenerating = true;
     chatInputEl.value = "";
     chatInputEl.style.height = "auto";
@@ -473,7 +407,6 @@ document.addEventListener("DOMContentLoaded", () => {
           user_id: currentUserId,
           thread_id: currentThreadId,
           question: query,
-          connection_id: connId,
           enable_pii: togglePiiEl ? togglePiiEl.checked : true,
         }),
       });

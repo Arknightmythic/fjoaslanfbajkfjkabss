@@ -20,48 +20,6 @@ services:
     networks:
       - synchrono-network
 
-  starrocks:
-    image: starrocks/allin1-ubuntu:3.5.20
-    container_name: synchrono-starrocks
-    restart: unless-stopped
-    profiles:
-      - analytics
-    ports:
-      - "127.0.0.1:${DB_PORT:-9030}:9030"
-      - "127.0.0.1:8030:8030"
-    volumes:
-      - starrocks_fe_meta:/data/deploy/starrocks/fe/meta
-      - starrocks_be_storage:/data/deploy/starrocks/be/storage
-    healthcheck:
-      test: ["CMD", "/data/deploy/health_check.sh"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    networks:
-      - synchrono-network
-
-  starrocks-init:
-    image: starrocks/allin1-ubuntu:3.5.20
-    container_name: synchrono-starrocks-init
-    profiles:
-      - analytics
-    restart: "no"
-    depends_on:
-      starrocks:
-        condition: service_healthy
-    environment:
-      STARROCKS_HOST: starrocks
-      STARROCKS_PORT: 9030
-      DB_NAME: ${DB_NAME:-synchrono}
-      DB_USER: ${DB_USER:-synchrono_readonly}
-      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
-    volumes:
-      - ./scripts/init_starrocks.sh:/scripts/init_starrocks.sh:ro
-    entrypoint: ["/bin/bash", "/scripts/init_starrocks.sh"]
-    networks:
-      - synchrono-network
-
   chatbot-api:
     build:
       context: .
@@ -74,13 +32,14 @@ services:
       - "127.0.0.1:${PORT:-8000}:8000"
     env_file:
       - .env
+    environment:
+      INTERNAL_HOST: postgres-chatbot
+      INTERNAL_PORT: 5432
     volumes:
       - ./data:/app/data
     depends_on:
       postgres-chatbot:
         condition: service_healthy
-      starrocks-init:
-        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v1/health || exit 1"]
       interval: 10s
@@ -98,7 +57,5 @@ networks:
 volumes:
   postgres_chatbot_data:
     name: synchrono_chatbot_data
-  starrocks_fe_meta:
-    name: synchrono_starrocks_fe_meta
-  starrocks_be_storage:
-    name: synchrono_starrocks_be_storage
+
+  

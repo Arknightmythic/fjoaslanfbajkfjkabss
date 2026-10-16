@@ -23,9 +23,8 @@ const evalFn = (code) => {
 
 const waitFn = (cond) => run(['wait', '--fn', cond]);
 
-const submit = (q, conn = 'test-conn', pii = true) => evalFn(`(() => {
-  const c = document.getElementById("input-connection-id"), t = document.getElementById("toggle-pii");
-  if (c) { c.value = ${JSON.stringify(conn)}; c.dispatchEvent(new Event("input")); }
+const submit = (q, pii = true) => evalFn(`(() => {
+  const t = document.getElementById("toggle-pii");
   if (t) { t.checked = ${JSON.stringify(pii)}; t.dispatchEvent(new Event("change")); }
   const i = document.getElementById("chat-input");
   i.value = ${JSON.stringify(q)};
@@ -57,13 +56,7 @@ async function check() {
     const initUrls = evalFn(`performance.getEntriesByType("resource").map(r => r.name)`);
     assert.ok(initUrls.every(u => !u.includes('/api/v1')), 'Legacy /api/v1 called on init');
 
-    // 2. Blank connection ID blocks chat request & keeps input active
-    submit('Tanya tanpa ID', '');
-    waitFn(`document.querySelector('#input-connection-id.input-error') !== null`);
-    assert.strictEqual(evalFn(`window.__h.calls.length`), 0, 'Blank connection ID must block request to /chat');
-    assert.strictEqual(evalFn(`!document.getElementById("chat-input").disabled`), true);
-
-    // 3. Exact POST /chat contract: url, method, exact keys, PII true/false, user/thread format & stability, framing-split SSE
+    // 2. Direct chat behavior: query submits immediately without connection ID prompt
     evalFn(`window.__h.handler = () => new Response(new ReadableStream({
       start(c) {
         const enc = new TextEncoder();
@@ -75,15 +68,18 @@ async function check() {
       }
     }), { headers: { "Content-Type": "text/event-stream" } })`);
 
-    // 3a. Submit with PII enabled (default)
-    submit('Tanya status batch', 'conn-uuid-1', true);
+    submit('Tanya status batch', true);
     waitFn(`document.body.innerText.includes("Halo dunia") && !document.getElementById("chat-input").disabled`);
+    assert.strictEqual(evalFn(`window.__h.calls.length`), 1, 'Chat query dispatches directly to /chat');
+    assert.strictEqual(evalFn(`document.getElementById("input-connection-id") === null`), true, 'Connection ID input element removed');
+
+    // 3. Exact POST /chat contract: url, method, exact keys, PII true/false, user/thread format & stability, framing-split SSE
+    // 3a. Submit with PII enabled (default)
     const s3a = evalFn(`({ req: window.__h.calls.pop(), title: document.getElementById("current-chat-title").innerText })`);
     assert.strictEqual(s3a.req.url, '/chat');
     assert.strictEqual(s3a.req.method, 'POST');
-    assert.deepStrictEqual(Object.keys(s3a.req.json).sort(), ['connection_id', 'enable_pii', 'question', 'thread_id', 'user_id']);
+    assert.deepStrictEqual(Object.keys(s3a.req.json).sort(), ['enable_pii', 'question', 'thread_id', 'user_id']);
     assert.strictEqual(s3a.req.json.question, 'Tanya status batch');
-    assert.strictEqual(s3a.req.json.connection_id, 'conn-uuid-1');
     assert.strictEqual(s3a.req.json.enable_pii, true);
     assert.ok(s3a.req.json.user_id && s3a.req.json.user_id.length <= 36);
     assert.ok(s3a.req.json.thread_id && s3a.req.json.thread_id.length <= 36);
@@ -91,7 +87,7 @@ async function check() {
     const stableThread = s3a.req.json.thread_id;
 
     // 3b. Submit with PII disabled; assert thread stability
-    submit('Tanya PII off', 'conn-uuid-2', false);
+    submit('Tanya PII off', false);
     waitFn(`document.body.innerText.includes("Halo dunia") && !document.getElementById("chat-input").disabled`);
     const s3bReq = evalFn(`window.__h.calls.pop()`);
     assert.strictEqual(s3bReq.json.enable_pii, false);

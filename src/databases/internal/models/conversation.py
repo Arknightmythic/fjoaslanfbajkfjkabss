@@ -17,10 +17,5 @@ class Conversation(Base):
     )
     thread_id = Column(String(150), nullable=False, unique=True, index=True)
     title = Column(String(255), nullable=True)
-    connection_id = Column(
-        String(36),
-        ForeignKey("data_connections.id", ondelete="SET NULL", onupdate="CASCADE"),
-        nullable=True
-    )
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
