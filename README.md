@@ -19,7 +19,7 @@ Enterprise Data Analyst & Reasoning Agent microservice for the Synchrono Identit
    - **`PIIMiddleware`:** Automatic detection and masking of 16-digit Indonesian National Identity Numbers (NIK).
    - **`ToolRetryMiddleware`:** Automated self-correction for malformed SQL queries up to 2 retries.
 6. **Anti-Slop Web UI:** Interactive testing interface at `http://localhost:8000/` featuring animated thinking states, dynamic tool progress indicators, and seamless transition to streaming markdown without black hollow box artifacts.
-7. **7-Criteria Trajectory Evaluation Harness:** Comprehensive evaluation suite verifying intermediate tool calls, reasoning trajectories, factuality against ground-truth SQL, and multi-turn state retention across 14 benchmark scenarios (100% pass rate).
+7. **7-Criteria Trajectory Evaluation Harness:** Comprehensive evaluation suite verifying intermediate tool calls, reasoning trajectories, factuality against ground-truth SQL, and multi-turn state retention across 14 benchmark scenarios.
 8. **1-Click Full Docker Stack:** Multi-container `docker-compose.yml` including both PostgreSQL 16 on port 5433 and containerized FastAPI with automatic database healthcheck dependencies.
 
 ---
@@ -39,13 +39,14 @@ The agent operates with 3 focused, purpose-built tools:
 ## 🚀 Quick Start Guide
 
 ### 1. Prerequisites
-- **Docker & Docker Compose** (for containerized deployment)
-- **Python 3.12+** and **uv** (if running locally on host)
+- **Python 3.12+** and **uv** (for host service execution)
+- **Docker & Docker Compose** (for database containerization)
 
 ### 2. Configure Environment Variables
-Copy `.env.example` to `.env`:
+Preserve existing `.env` if already configured, or copy `.env.example` to `.env`:
 ```bash
-cp .env.example .env
+# Preserve existing .env; copy template only if missing
+cp -n .env.example .env
 ```
 Key configuration parameters:
 ```env
@@ -54,19 +55,23 @@ OPENAI_MODEL_NAME=gemma4:31b-cloud
 OPENAI_BASE_URL=https://ollama.com/v1
 OPENAI_API_KEY=your_ollama_or_openai_api_key
 
-# PostgreSQL Chatbot Storage (Container Port 5433)
-POSTGRES_DB=synchrono_chatbot
-POSTGRES_USER=synchrono
-POSTGRES_PASSWORD=synchrono123
-POSTGRES_PORT=5433
-POSTGRES_HOST=localhost
+# PostgreSQL Conversation & Chat History Storage (Internal DB, Port 5433)
+INTERNAL_HOST=127.0.0.1
+INTERNAL_PORT=5433
+INTERNAL_USER=synchrono
+INTERNAL_PASSWORD=change_me_local
+INTERNAL_DATABASE=synchrono_chatbot
 
-# Analytics Database (Read-Only)
-ANALYTICS_DB_URI=postgresql://synchrono_readonly:sync_ro_pass@localhost:5433/synchrono
+# Analytics Database (StarRocks Engine, Port 9030)
+DB_HOST=127.0.0.1
+DB_PORT=9030
+DB_NAME=synchrono
+DB_USER=synchrono_readonly
+DB_PASSWORD=change_me_local
 
 # Observability (Optional)
-USE_OPIK=true
-OPIK_API_KEY=your_opik_api_key
+USE_OPIK=false
+OPIK_API_KEY=your_opik_cloud_api_key_here
 OPIK_PROJECT_NAME=synchrono-chatbot
 ```
 
@@ -74,35 +79,51 @@ OPIK_PROJECT_NAME=synchrono-chatbot
 
 ### 3. Launching the Service
 
-#### Option A: 1-Click Docker Compose Full Stack (Recommended)
-Launches both PostgreSQL database container and FastAPI service container with healthcheck verification:
+#### Option A: Lightweight Hybrid Development (Recommended)
+Runs PostgreSQL in Docker and boots the FastAPI service locally on host:
 
-* **Windows PowerShell:**
-  ```powershell
-  .\start_all.ps1
-  ```
+1. **Sync dependencies:**
+   ```bash
+   uv sync --locked
+   ```
+
+2. **Start internal PostgreSQL container:**
+   ```bash
+   docker compose up -d postgres-chatbot
+   ```
+
+3. **Run FastAPI development server with hot-reload:**
+   * **Linux / macOS / Git Bash:**
+     ```bash
+     USE_OPIK=false uv run uvicorn src.api.server:app --reload --host 127.0.0.1 --port 8000
+     ```
+   * **Windows PowerShell:**
+     ```powershell
+     $env:USE_OPIK="false"; uv run uvicorn src.api.server:app --reload --host 127.0.0.1 --port 8000
+     ```
+
+*(Note: FastAPI and the Web UI can boot without StarRocks; analytics tools require a configured, reachable StarRocks instance).*
+
+#### Option B: Full Stack Docker Compose (Optional)
+> ⚠️ **Prerequisite**: Host system requires **>= 4 GiB free RAM** to run the complete stack (StarRocks combined Frontend/Backend engines).
+
+Launches PostgreSQL, StarRocks, StarRocks initializer, and FastAPI service containers with healthcheck verification:
+
 * **Linux / macOS / Git Bash:**
   ```bash
-  chmod +x *.sh
-  ./start_all.sh
+  chmod +x scripts/start_all.sh
+  ./scripts/start_all.sh
+  ```
+* **Windows PowerShell:**
+  ```powershell
+  .\scripts\start_all.ps1
   ```
 * **Or standard Docker Compose:**
   ```bash
-  docker compose up -d --build
+  docker compose --profile analytics --profile app up -d --build
   ```
 
-*(To stop the entire stack, run `.\stop_all.ps1`, `./stop_all.sh`, or `docker compose down`)*
-
-#### Option B: Hybrid Development (Docker DB + Local Python Server)
-1. Start the PostgreSQL database container only:
-   ```powershell
-   .\start_db.ps1   # Windows
-   ./start_db.sh    # Linux/macOS
-   ```
-2. Run the FastAPI development server with hot-reload:
-   ```bash
-   uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
-   ```
+*(To stop the entire stack, run `docker compose --profile analytics --profile app down`)*
 
 #### Accessing the Service
 Once started, the service is operational at:
@@ -115,24 +136,28 @@ Once started, the service is operational at:
 
 ## 🧪 Testing & Evaluation Harness
 
-### 1. Unit & Integration Tests (Pytest)
-Run the pytest test suite to verify database models, middleware sanitization, and endpoint routing:
-```bash
-uv run pytest tests/ -v
-# Output: 7 passed
-```
+All automated tests and evaluation suites are located in `src/tests/` and run via pytest.
 
-### 2. Trajectory-Level Evaluation Harness (LLM-as-a-Judge)
-Evaluate the agent's intermediate tool calls, SQL accuracy, language compliance, PII safety, and contextual recommendations across all 14 test cases:
+### 1. Unit & Offline Tests (Default)
+Run the default test suite to verify database models, middleware sanitization, endpoint routing, and offline evaluation checks:
 ```bash
-uv run python evals/run_eval.py
+uv run pytest -v
 ```
+* Default `testpaths = ["src/tests"]` and `addopts = "-m 'not eval'"` automatically exclude live model evaluations.
+* Tests run isolated against a temporary SQLite conversation store and seeded in-memory analytical datasets. Opik telemetry is disabled during test runs.
+* Canned demo responses and mocks are test-only fixtures for offline verification; runtime requires an active LLM endpoint and never emits synthetic fallback answers when model calls fail.
 
-Evaluation output includes:
-* Per-case pass/fail breakdown across 7 criteria.
-* Hop count and intermediate tool inspection (`run_query`, `get_schemas`).
-* Factuality verification against ground-truth SQL execution.
-* Exported JSON summary at `evals/results.json`.
+### 2. Live Model Evaluation (Deterministic Scoring)
+Evaluate the agent's intermediate tool calls, SQL accuracy, language compliance, PII safety, and contextual recommendations across all 14 benchmark scenarios against a live model:
+```bash
+uv run pytest -m eval -v
+```
+*(Optional: add `--junitxml=pytest-evals.xml` to generate standard JUnit XML test reports)*
+
+Evaluation details:
+* Uses live LLM inferences (consumes API quota; Opik disabled during tests).
+* Verifies per-scenario behavior across 7 evaluation criteria (Task Success, Tool-Use Correctness, Cross-Table Lookup, Language Compliance, PII Safety, Factuality, Contextual Recommendations).
+* Tests intermediate tool inspection (`run_query`, `get_schemas`), hop counts, and factuality against ground-truth SQL.
 
 ---
 

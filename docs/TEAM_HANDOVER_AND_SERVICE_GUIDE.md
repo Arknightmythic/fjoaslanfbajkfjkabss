@@ -186,13 +186,14 @@ Best for backend engineers developing features with hot-reloading:
 docker compose up -d postgres-chatbot
 
 # 2. Run server with hot-reload
-uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn src.api.server:app --reload --host 0.0.0.0 --port 8000
 ```
+*(Note: `main:app` is maintained as a backwards-compatible entrypoint)*
 
 ### Mode 3: Zero-Docker Pure Offline Mode
 If Docker is unavailable, run directly on bare metal:
 ```bash
-uv run uvicorn main:app --port 8000
+uv run uvicorn src.api.server:app --port 8000
 ```
 *The engine auto-detects that PostgreSQL is offline and switches to SQLite fallback without throwing errors.*
 
@@ -218,17 +219,18 @@ Expected output:
 }
 ```
 
-### 2. Run Pytest Suite
+### 2. Run Pytest Suite (Unit & Offline Tests)
 ```bash
-uv run pytest tests/ -v
-# Output: 7 passed
+uv run pytest -v
 ```
+Default tests run isolated in-memory against a temporary SQLite conversation store and seeded mock analytics data, bypassing external network calls with Opik telemetry disabled.
 
-### 3. Run Trajectory Evaluation Harness (14 Scenarios)
+### 3. Run Trajectory Evaluation Harness (Live Model)
 ```bash
-uv run python evals/run_eval.py
-# Output: 14 / 14 Passed (100% pass rate)
+uv run pytest -m eval -v
 ```
+*(Optional: `--junitxml=pytest-evals.xml`)*  
+Evaluates all 14 benchmark scenarios against the live LLM endpoint for SQL factuality, tool calling, PII masking, and contextual recommendations (uses live model inferences, costs API quota, Opik disabled during tests).
 
 ---
 
@@ -310,7 +312,7 @@ User=synchrono
 Group=synchrono
 WorkingDirectory=/opt/synchrono-chatbot
 EnvironmentFile=/opt/synchrono-chatbot/.env
-ExecStart=/opt/synchrono-chatbot/.venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
+ExecStart=/opt/synchrono-chatbot/.venv/bin/python -m uvicorn src.api.server:app --host 0.0.0.0 --port 8000 --workers 4
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -419,8 +421,8 @@ Ensure this checklist is completed before handing over the service:
 - [ ] **Repository Cloned:** Codebase downloaded and verified.
 - [ ] **`.env` Configured:** Valid AI API key, Base URL, and Database connection set.
 - [ ] **Health Check Verified:** `GET /api/v1/health` returns `status: healthy`.
-- [ ] **Pytest Passed:** Unit tests pass 7/7 (`uv run pytest tests/`).
-- [ ] **Evaluation Passed:** Trajectory runner passes 14/14 (`uv run python evals/run_eval.py`).
+- [ ] **Pytest Passed:** Unit & offline tests pass (`uv run pytest -v`).
+- [ ] **Evaluation Verified:** Trajectory evaluation suite runs against live model (`uv run pytest -m eval -v`).
 - [ ] **Database Connection:** PostgreSQL port 5433 verified, or remote read-only analytics DB verified.
 - [ ] **Proxy Buffering Disabled:** Nginx/ALB configured with `proxy_buffering off` for real-time SSE streaming.
 - [ ] **CORS Origins Updated:** `CORS_ORIGINS` includes the production frontend origin domain.

@@ -196,7 +196,7 @@ To objectively verify agent quality, reliability, and security, the system inclu
 Standard string evaluations only assess final model text, ignoring whether the model performed unnecessary database hops or formulated insecure SQL queries. The evaluation harness resolves this using `ask_with_trajectory` in [chatbot/handler.py](file:///c:/Users/ISGS/Documents/kerjaan/syncrono_new/synchrono-chatbot/chatbot/handler.py):
 
 ```python
-trajectory = handler.ask_with_trajectory(
+trajectory = handler.invoke_with_trajectory(
     thread_id=test_case["id"],
     question=test_case["question"]
 )
@@ -210,7 +210,7 @@ trajectory = handler.ask_with_trajectory(
 
 ### 6.2. The 7 Evaluation Criteria
 
-Detailed in [evals/rubric.md](file:///c:/Users/ISGS/Documents/kerjaan/syncrono_new/synchrono-chatbot/evals/rubric.md):
+Detailed in [docs/EVALUATION_RUBRIC.md](EVALUATION_RUBRIC.md):
 
 | # | Criterion | Scale | Level | Evaluation Logic |
 |:---:|:---|:---:|:---:|:---|
@@ -227,7 +227,7 @@ Detailed in [evals/rubric.md](file:///c:/Users/ISGS/Documents/kerjaan/syncrono_n
 
 ### 6.3. Dataset Coverage (14 Test Cases)
 
-Configured in [evals/test_cases.json](file:///c:/Users/ISGS/Documents/kerjaan/syncrono_new/synchrono-chatbot/evals/test_cases.json):
+Configured in [src/tests/test_cases.json](../src/tests/test_cases.json):
 
 1. **TC-01:** Annual dataset aggregation (`uploaded_files` summary, row counts, grade distributions).
 2. **TC-02:** Institution file filtering (Fav Institute count and unique filenames).
@@ -244,15 +244,18 @@ Configured in [evals/test_cases.json](file:///c:/Users/ISGS/Documents/kerjaan/sy
 13. **TC-13:** Platform status overview (`"Bagaimana status datanya sekarang?"` status synthesis).
 14. **TC-14:** Multi-turn conversational context drill-down (`"Cek detail peninjauan manual Budi Santoso"`, testing state preservation from TC-11).
 
-### 6.4. Benchmark Results
+### 6.4. Pytest Evaluation Execution
 
-Executing `uv run python evals/run_eval.py` produces the following benchmark output:
+The evaluation suite is integrated directly into pytest in `src/tests/` (replacing standalone script runners):
 
-* **Total Test Cases Evaluated:** 14
-* **Pass Rate:** 100% (14 / 14 Passed)
-* **Aggregate Score:** 141 / 154 (91.6% factual and behavioral alignment)
-* **Average Step Latency:** ~6.4 seconds per analytical query
-* **PII Leaks Detected:** 0
-* **DDL Attacks Executed:** 0
+* **Default Unit & Offline Suite:**
+  ```bash
+  uv run pytest -v
+  ```
+  Runs fast deterministic tests and offline trajectory evaluation assertions (`testpaths = ["src/tests"]`, `addopts = "-m 'not eval'"`). Tests run against an isolated temporary SQLite conversation database and seeded in-memory demo analytics. Opik observability is disabled during test runs.
 
-Results are saved to [evals/results.json](file:///c:/Users/ISGS/Documents/kerjaan/syncrono_new/synchrono-chatbot/evals/results.json) for historical regression tracking.
+* **Live Model Trajectory Evaluation:**
+  ```bash
+  uv run pytest -m eval -v
+  ```
+  Evaluates all 14 benchmark scenarios against the live LLM endpoint using pytest-based judge functions. This suite exercises real model reasoning trajectories, tool call extraction, and SQL factuality, consuming API quota. Standard JUnit XML output can optionally be produced via `--junitxml=pytest-evals.xml`.
