@@ -78,3 +78,12 @@ def test_chat_endpoint_validates_required_fields():
     response = client.post("/chat", json={"user_id": "user-1"})
 
     assert response.status_code == 422
+
+
+def test_ingest_from_server_path_is_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("KNOWLEDGE_INGEST_FILE_ENABLED", raising=False)
+
+    response = client.post("/api/v1/ingest/file", json={"file_path": "/proc/self/environ"})
+
+    assert response.status_code == 403
+    assert "/api/v1/knowledge/documents" in response.json()["detail"]

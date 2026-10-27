@@ -17,6 +17,13 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _has_vector_tables() -> bool:
+    return bool(op.get_bind().execute(sa.text(
+        "SELECT to_regclass('langchain_pg_embedding') IS NOT NULL "
+        "AND to_regclass('langchain_pg_collection') IS NOT NULL"
+    )).scalar())
+
+
 def upgrade() -> None:
     op.add_column(
         "knowledge_documents",
@@ -31,6 +38,15 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
+
+    # The langchain_pg_* vector tables are created by langchain-postgres on first
+    # use, so a fresh database does not have them yet: nothing to tag then.
+    if not _has_vector_tables():
+        op.execute(
+            """INSERT INTO faq_index_state (id, active_version, next_version)
+               SELECT 1, 0, COALESCE((SELECT MAX(version_number) + 1 FROM knowledge_documents), 1)"""
+        )
+        return
 
     # Existing vectors form the initial active FAQ snapshot. Preserve their data
     # and tag it as version 1 instead of dropping/rebuilding the vector tables.

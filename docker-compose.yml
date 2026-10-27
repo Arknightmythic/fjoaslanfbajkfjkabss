@@ -25,7 +25,7 @@ services:
     container_name: synchrono-chatbot-valkey
     restart: unless-stopped
     ports:
-      - "127.0.0.1:6379:6379"
+      - "127.0.0.1:${VALKEY_HOST_PORT:-6379}:6379"
     command: ["valkey-server", "--appendonly", "yes"]
     volumes:
       - valkey_data:/data
@@ -47,10 +47,10 @@ services:
       AWS_SECRET_ACCESS_KEY: ${SEAWEEDFS_SECRET_KEY:?Set SEAWEEDFS_SECRET_KEY in .env}
       S3_BUCKET: ${SEAWEEDFS_BUCKET:-chatbot-documents}
     ports:
-      - "127.0.0.1:8333:8333"
-      - "127.0.0.1:8888:8888"
-      - "127.0.0.1:9333:9333"
-      - "127.0.0.1:23646:23646"
+      - "127.0.0.1:${SEAWEEDFS_S3_HOST_PORT:-8333}:8333"
+      - "127.0.0.1:${SEAWEEDFS_FILER_HOST_PORT:-8888}:8888"
+      - "127.0.0.1:${SEAWEEDFS_MASTER_HOST_PORT:-9333}:9333"
+      - "127.0.0.1:${SEAWEEDFS_ADMIN_HOST_PORT:-23646}:23646"
     volumes:
       - seaweedfs_data:/data
     healthcheck:
@@ -59,6 +59,30 @@ services:
       timeout: 5s
       retries: 10
       start_period: 15s
+    networks:
+      - synchrono-network
+
+  # Brings the internal PostgreSQL schema up to date (alembic upgrade head) before the API
+  # and the worker start; runs once per `docker compose up` and exits.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: synchrono-chatbot-migrate
+    restart: "no"
+    profiles:
+      - app
+    env_file:
+      - .env
+    environment:
+      INTERNAL_HOST: postgres-chatbot
+      INTERNAL_PORT: 5432
+    command: ["/app/.venv/bin/alembic", "upgrade", "head"]
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres-chatbot:
+        condition: service_healthy
     networks:
       - synchrono-network
 
@@ -100,8 +124,8 @@ services:
       retries: 3
       start_period: 30s
     depends_on:
-      postgres-chatbot:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       valkey:
         condition: service_healthy
       seaweedfs:
@@ -139,7 +163,8 @@ services:
     profiles:
       - app
     ports:
-      - "127.0.0.1:8001:8000"
+      # API_BIND=0.0.0.0 when browsers call the API directly (server deployment).
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-8001}:8000"
     env_file:
       - .env
     environment:
@@ -164,8 +189,8 @@ services:
       - ./data:/app/data
       - fastembed_model_cache:/tmp/fastembed_cache
     depends_on:
-      postgres-chatbot:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       valkey:
         condition: service_started
       seaweedfs:
@@ -181,15 +206,15 @@ services:
 
 networks:
   synchrono-network:
-    name: synchrono_network
+    name: ${CHATBOT_NETWORK:-synchrono_network}
     driver: bridge
 
 volumes:
   postgres_chatbot_data:
-    name: synchrono_chatbot_data
+    name: ${CHATBOT_VOLUME_PREFIX:-synchrono}_chatbot_data
   valkey_data:
-    name: synchrono_valkey_data
+    name: ${CHATBOT_VOLUME_PREFIX:-synchrono}_valkey_data
   seaweedfs_data:
-    name: synchrono_seaweedfs_data
+    name: ${CHATBOT_VOLUME_PREFIX:-synchrono}_seaweedfs_data
   fastembed_model_cache:
-    name: synchrono_fastembed_model_cache
+    name: ${CHATBOT_VOLUME_PREFIX:-synchrono}_fastembed_model_cache

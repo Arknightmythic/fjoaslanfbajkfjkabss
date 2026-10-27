@@ -12,7 +12,7 @@
 
 **YES.** The repository is completely self-contained and reproducible. Any developer or automated agent cloning this codebase can boot and operate the full stack immediately because of the following structural guarantees:
 
-1. **Automatic Database Migrations:** Conversation and session tables (`conversations`, `messages`, indices) are dynamically created on initial boot. No manual SQL migrations or seed scripts are required.
+1. **Automatic Database Migrations:** With `docker compose --profile app up`, the one-shot `migrate` service runs `alembic upgrade head` before the API and the document worker start, on a fresh database too (the `langchain_pg_*` vector tables are created later by langchain-postgres on first use). Running the API outside Docker: run `alembic upgrade head` once yourself.
 2. **Dual-Mode Analytical Resilience:** The analytical database engine automatically detects whether an external database is reachable. If unreachable (e.g. developing offline or without a VPN connection), it transparently activates an internal SQLite in-memory database configured with `StaticPool`, pre-seeded with reference tables and realistic mock records.
 3. **Multi-Platform Startup Scripts:** Complete one-click scripts are provided for both Unix/Linux/macOS (`.sh`) and Windows (`.ps1`).
 4. **Port Conflict Protection:** PostgreSQL runs on host port **5433** to prevent collisions with pre-existing local PostgreSQL instances on port 5432.

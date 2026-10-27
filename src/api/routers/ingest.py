@@ -1,3 +1,5 @@
+import os
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -20,6 +22,13 @@ class IngestTextRequest(BaseModel):
 
 @router.post("/file")
 async def ingest_file_endpoint(req: IngestFileRequest):
+    # Reads any path on the server, and the API has no authentication yet: off unless a
+    # deployment turns it on. Uploads go through /api/v1/knowledge/documents instead.
+    if os.getenv("KNOWLEDGE_INGEST_FILE_ENABLED", "false").lower() not in ("true", "1", "yes"):
+        raise HTTPException(
+            status_code=403,
+            detail="Ingest from a server file path is disabled; upload through /api/v1/knowledge/documents.",
+        )
     try:
         path = Path(req.file_path)
         if not path.exists():

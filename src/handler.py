@@ -73,10 +73,16 @@ def _get_default_embedding():
     if embedding_provider == "openai":
         try:
             from langchain_openai import OpenAIEmbeddings
+            # EMBEDDING_BASE_URL / EMBEDDING_API_KEY point at an OpenAI-compatible
+            # embedding gateway (e.g. ollama-proxies) separate from the chat model.
+            # Such gateways take text only, so the client must not send token ids
+            # (check_embedding_ctx_length), which only api.openai.com accepts.
             return OpenAIEmbeddings(
-                model=os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
-                api_key=os.getenv("OPENAI_API_KEY"),
-                base_url=os.getenv("OPENAI_BASE_URL"),
+                model=os.getenv("OPENAI_EMBEDDING_MODEL")
+                or os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
+                api_key=os.getenv("EMBEDDING_API_KEY") or os.getenv("OPENAI_API_KEY"),
+                base_url=os.getenv("EMBEDDING_BASE_URL") or os.getenv("OPENAI_BASE_URL"),
+                check_embedding_ctx_length=False,
             )
         except Exception as e:
             logger.warning(f"Failed to initialize OpenAIEmbeddings: {e}")

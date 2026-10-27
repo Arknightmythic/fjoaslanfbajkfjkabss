@@ -19,6 +19,8 @@ class MySQLConnector(DatabaseConnector):
         connect_timeout = max(1, int(os.getenv("DB_CONNECT_TIMEOUT", "5")))
         read_timeout = max(1, int(os.getenv("DB_READ_TIMEOUT", "15")))
         self._max_retries = max(0, int(os.getenv("DB_MAX_RETRIES", "2")))
+        # Rows run_query hands to the model; more would only fill its context.
+        self._max_rows = max(1, int(os.getenv("DB_MAX_ROWS", "200")))
         url = URL.create(
             drivername="mysql+pymysql",
             username=username,
@@ -141,17 +143,33 @@ class MySQLConnector(DatabaseConnector):
                 time.sleep(delay)
         raise RuntimeError("unreachable")
 
+    def _limited(self, query: str, max_rows: int) -> str:
+        """The query with LIMIT max_rows + 1 when it has no LIMIT of its own, so StarRocks
+        stops early; the extra row tells whether the result was cut."""
+        try:
+            stmt = sqlglot.parse_one(query, read=self.dialect)
+        except Exception:
+            return query
+        if stmt is None or stmt.args.get("limit"):
+            return query
+        # On a new line, so a trailing -- comment cannot swallow it.
+        return f"{query.rstrip().rstrip(';').rstrip()}\nLIMIT {max_rows + 1}"
+
     def execute_query(self, query: str) -> str:
         err = self._check_forbidden(query)
         if err:
             return err
         if self._has_forbidden_tables(query):
             return "[WARNING] Query references forbidden internal tables."
+        max_rows = getattr(self, "_max_rows", 200)
         try:
-            cols, rows = self._execute(query)
+            cols, rows = self._execute(self._limited(query, max_rows))
             result = "\t".join(cols)
-            for row in rows:
+            for row in rows[:max_rows]:
                 result += "\n" + "\t".join(str(c) for c in row)
+            if len(rows) > max_rows:
+                result += (f"\n[TRUNCATED] Only the first {max_rows} rows are shown. Aggregate "
+                           f"(COUNT/SUM/GROUP BY) or filter further for complete figures.")
             return result
         except Exception as e:
             logger.error(f"MySQLConnector.execute_query error: {e}")

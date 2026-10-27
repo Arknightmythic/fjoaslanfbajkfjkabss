@@ -334,7 +334,7 @@ DOMAINS: dict[str, DomainDefinition] = {
             ),
             "batch_part_count": MetricDefinition(
                 name="batch_part_count",
-                expression="COALESCE(SUM(b.part_count), 0)",
+                expression="COALESCE(SUM(b.parts), 0)",
                 description="Total akumulasi part pada batch",
                 domain="batch",
             ),

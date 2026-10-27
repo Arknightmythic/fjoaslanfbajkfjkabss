@@ -437,3 +437,27 @@ def test_valid_query_tsv_execution(isolated_connector_modules):
         assert tsv == "id\titem_name\n1\tkeyboard\n2\tmouse"
     finally:
         engine.dispose()
+
+
+def test_query_results_are_capped_for_the_model(isolated_connector_modules):
+    mod_base, mod_mysql = isolated_connector_modules
+    connector = mod_mysql.MySQLConnector.__new__(mod_mysql.MySQLConnector)
+    connector._db = "mock_db"
+    connector._max_rows = 2
+
+    engine = create_engine("sqlite:///:memory:")
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("CREATE TABLE items (id INT)"))
+            conn.execute(text("INSERT INTO items VALUES (1), (2), (3)"))
+        connector._engine = engine
+
+        capped = connector.execute_query("SELECT id FROM items ORDER BY id -- all of them")
+        assert capped.splitlines()[:3] == ["id", "1", "2"]
+        assert "[TRUNCATED] Only the first 2 rows are shown" in capped
+
+        # A query's own LIMIT is kept; the cap still applies to what the model sees.
+        assert connector.execute_query("SELECT id FROM items ORDER BY id LIMIT 2;") == "id\n1\n2"
+        assert "[TRUNCATED]" in connector.execute_query("SELECT id FROM items LIMIT 3")
+    finally:
+        engine.dispose()

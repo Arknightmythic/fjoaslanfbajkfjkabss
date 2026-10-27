@@ -17,6 +17,13 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _has_vector_tables() -> bool:
+    return bool(op.get_bind().execute(sa.text(
+        "SELECT to_regclass('langchain_pg_embedding') IS NOT NULL "
+        "AND to_regclass('langchain_pg_collection') IS NOT NULL"
+    )).scalar())
+
+
 def upgrade() -> None:
     op.add_column(
         "knowledge_documents",
@@ -38,16 +45,18 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("source_type"),
     )
 
-    # Existing documents and vectors all belong to the FAQ source.
+    # Existing documents and vectors all belong to the FAQ source. A fresh database
+    # has no langchain_pg_* tables yet (langchain-postgres creates them on first use).
     op.execute("UPDATE knowledge_documents SET source_type = 'faq'")
-    op.execute(
-        """UPDATE langchain_pg_embedding AS e
-           SET cmetadata = COALESCE(e.cmetadata, '{}'::jsonb) || jsonb_build_object('source_type', 'faq')
-           FROM langchain_pg_collection AS c
-           WHERE e.collection_id = c.uuid
-             AND c.name = 'synchrono_faq_docs'
-             AND e.cmetadata ->> 'source_type' IS NULL"""
-    )
+    if _has_vector_tables():
+        op.execute(
+            """UPDATE langchain_pg_embedding AS e
+               SET cmetadata = COALESCE(e.cmetadata, '{}'::jsonb) || jsonb_build_object('source_type', 'faq')
+               FROM langchain_pg_collection AS c
+               WHERE e.collection_id = c.uuid
+                 AND c.name = 'synchrono_faq_docs'
+                 AND e.cmetadata ->> 'source_type' IS NULL"""
+        )
 
     op.execute(
         """INSERT INTO knowledge_index_state (source_type, active_version, next_version)
@@ -79,11 +88,12 @@ def downgrade() -> None:
            WHERE source_type = 'faq'"""
     )
 
-    op.execute(
-        """UPDATE langchain_pg_embedding
-           SET cmetadata = cmetadata - 'source_type'
-           WHERE cmetadata ? 'source_type'"""
-    )
+    if _has_vector_tables():
+        op.execute(
+            """UPDATE langchain_pg_embedding
+               SET cmetadata = cmetadata - 'source_type'
+               WHERE cmetadata ? 'source_type'"""
+        )
 
     op.drop_table("knowledge_index_state")
     op.drop_index(op.f("ix_knowledge_documents_source_type"), table_name="knowledge_documents")
