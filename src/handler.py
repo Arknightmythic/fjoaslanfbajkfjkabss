@@ -3,7 +3,7 @@ import re
 import json
 from time import perf_counter
 from uuid import uuid4
-from contextlib import contextmanager, asynccontextmanager
+from contextlib import AsyncExitStack, ExitStack, contextmanager, asynccontextmanager
 from typing import AsyncIterator, Optional, List, Dict, Any
 from dotenv import load_dotenv
 from loguru import logger
@@ -14,7 +14,8 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import TodoListMiddleware, ToolRetryMiddleware, SummarizationMiddleware
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
-from langchain_openai import ChatOpenAI
+# Under the ChatOpenAI name, so the tests that patch src.handler.ChatOpenAI keep working.
+from src.llm import GatewayChatOpenAI as ChatOpenAI
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
@@ -199,14 +200,17 @@ class ChatbotHandler:
             return
 
         postgres_uri = get_postgres_saver_uri()
-        try:
-            with PostgresSaver.from_conn_string(postgres_uri) as cp:
+        # Only opening the saver falls back to MemorySaver; an error raised by the caller's
+        # block propagates (yielding again after it would raise "generator didn't stop").
+        with ExitStack() as stack:
+            try:
+                cp = stack.enter_context(PostgresSaver.from_conn_string(postgres_uri))
                 cp.setup()
-                yield cp
-        except Exception as e:
-            logger.warning(f"[ChatbotHandler] PostgresSaver unavailable ({e}). Falling back to MemorySaver.")
-            from langgraph.checkpoint.memory import MemorySaver
-            yield MemorySaver()
+            except Exception as e:
+                logger.warning(f"[ChatbotHandler] PostgresSaver unavailable ({e}). Falling back to MemorySaver.")
+                from langgraph.checkpoint.memory import MemorySaver
+                cp = MemorySaver()
+            yield cp
 
     @asynccontextmanager
     async def _get_async_checkpointer(self):
@@ -216,14 +220,16 @@ class ChatbotHandler:
             return
 
         postgres_uri = get_postgres_saver_uri()
-        try:
-            async with AsyncPostgresSaver.from_conn_string(postgres_uri) as cp:
+        # As in _get_checkpointer: only opening the saver falls back to MemorySaver.
+        async with AsyncExitStack() as stack:
+            try:
+                cp = await stack.enter_async_context(AsyncPostgresSaver.from_conn_string(postgres_uri))
                 await cp.setup()
-                yield cp
-        except Exception as e:
-            logger.warning(f"[ChatbotHandler] AsyncPostgresSaver unavailable ({e}). Falling back to MemorySaver.")
-            from langgraph.checkpoint.memory import MemorySaver
-            yield MemorySaver()
+            except Exception as e:
+                logger.warning(f"[ChatbotHandler] AsyncPostgresSaver unavailable ({e}). Falling back to MemorySaver.")
+                from langgraph.checkpoint.memory import MemorySaver
+                cp = MemorySaver()
+            yield cp
 
     @staticmethod
     def _active_document_version() -> int:

@@ -8,7 +8,8 @@ from langchain.agents.middleware import AgentMiddleware, AgentState, hook_config
 from langchain.messages import AIMessageChunk, HumanMessage
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
-from langchain_openai import ChatOpenAI
+# Under the ChatOpenAI name, so the tests that patch guardrail.ChatOpenAI keep working.
+from src.llm import GatewayChatOpenAI as ChatOpenAI
 from langgraph.runtime import Runtime
 from src.prompts import PROMPT_INJECTION_GUARDRAIL_PROMPT
 from src.observability.file_tracer import current_tracer
