@@ -1,6 +1,6 @@
 # Synchrono AI Chatbot Service
 
-Enterprise Data Analyst & Reasoning Agent microservice for the Synchrono Identity-Matching platform. Built with modern **LangChain & LangGraph**, served via **FastAPI**, backed by **PostgreSQL** conversation memory, and instrumented with **Opik Cloud** observability.
+Enterprise Data Analyst & Reasoning Agent microservice for the Synchrono Identity-Matching platform. Built with modern **LangChain & LangGraph**, served via **FastAPI**, backed by **PostgreSQL** conversation memory, and instrumented with local structured **JSONL tracing**.
 
 > 🧭 **New Team Member / Service Handover:** If you are onboarding to this codebase or deploying this microservice to staging/production, follow the step-by-step [Master Team Handover & Service Deployment Guide](file:///c:/Users/ISGS/Documents/kerjaan/syncrono_new/synchrono-chatbot/docs/TEAM_HANDOVER_AND_SERVICE_GUIDE.md).
 
@@ -69,10 +69,14 @@ DB_NAME=synchrono
 DB_USER=synchrono_readonly
 DB_PASSWORD=change_me_local
 
-# Observability (Optional)
-USE_OPIK=false
-OPIK_API_KEY=your_opik_cloud_api_key_here
-OPIK_PROJECT_NAME=synchrono-chatbot
+# Local trace logging (JSONL under ./data/logs)
+CHATBOT_FILE_TRACE_ENABLED=true
+CHATBOT_TRACE_FILE=/app/data/logs/chatbot-traces.jsonl
+CHATBOT_TRACE_MAX_BYTES=10485760
+CHATBOT_TRACE_BACKUP_COUNT=5
+CHATBOT_TRACE_INCLUDE_CONTENT=true
+CHATBOT_TRACE_WRITE_JSON=true
+CHATBOT_TRACE_JSON_DIR=/app/data/logs/traces
 ```
 
 ---
@@ -95,11 +99,11 @@ Runs PostgreSQL in Docker and boots the FastAPI service locally on host:
 3. **Run FastAPI development server with hot-reload:**
    * **Linux / macOS / Git Bash:**
      ```bash
-     USE_OPIK=false uv run uvicorn src.api.server:app --reload --host 127.0.0.1 --port 8000
+      uv run uvicorn src.api.server:app --reload --host 127.0.0.1 --port 8000
      ```
    * **Windows PowerShell:**
      ```powershell
-     $env:USE_OPIK="false"; uv run uvicorn src.api.server:app --reload --host 127.0.0.1 --port 8000
+      uv run uvicorn src.api.server:app --reload --host 127.0.0.1 --port 8000
      ```
 
 *(Note: FastAPI and the Web UI can boot without StarRocks; analytics tools require a configured, reachable StarRocks instance).*
@@ -144,7 +148,7 @@ Run the default test suite to verify database models, middleware sanitization, e
 uv run pytest -v
 ```
 * Default `testpaths = ["src/tests"]` and `addopts = "-m 'not eval'"` automatically exclude live model evaluations.
-* Tests run isolated against a temporary SQLite conversation store and seeded in-memory analytical datasets. Opik telemetry is disabled during test runs.
+* Tests run isolated against a temporary SQLite conversation store and seeded in-memory analytical datasets. Local JSONL tracing can be disabled with `CHATBOT_FILE_TRACE_ENABLED=false` during tests.
 * Canned demo responses and mocks are test-only fixtures for offline verification; runtime requires an active LLM endpoint and never emits synthetic fallback answers when model calls fail.
 
 ### 2. Live Model Evaluation (Deterministic Scoring)
@@ -155,7 +159,7 @@ uv run pytest -m eval -v
 *(Optional: add `--junitxml=pytest-evals.xml` to generate standard JUnit XML test reports)*
 
 Evaluation details:
-* Uses live LLM inferences (consumes API quota; Opik disabled during tests).
+* Uses live LLM inferences (consumes API quota); trace output is written locally as JSONL metadata.
 * Verifies per-scenario behavior across 7 evaluation criteria (Task Success, Tool-Use Correctness, Cross-Table Lookup, Language Compliance, PII Safety, Factuality, Contextual Recommendations).
 * Tests intermediate tool inspection (`run_query`, `get_schemas`), hop counts, and factuality against ground-truth SQL.
 
@@ -169,7 +173,7 @@ Detailed technical specifications are organized in dedicated documents:
   The primary handbook for new engineers and DevOps. Covers setup, step-by-step `.env` configuration, Docker commands, and production service deployment ("dilempar by service") behind reverse proxies (Nginx/ALB) and Kubernetes.
 
 * **[Environment Configuration Guide](file:///c:/Users/ISGS/Documents/kerjaan/syncrono_new/synchrono-chatbot/docs/ENV_CONFIGURATION_GUIDE.md):**  
-  Step-by-step walkthrough for configuring AI model providers (Ollama Cloud, Local Ollama, OpenRouter, Groq, OpenAI), database URIs, Opik Cloud observability, and schema access control.
+   Step-by-step walkthrough for configuring AI model providers (Ollama Cloud, Local Ollama, OpenRouter, Groq, OpenAI), database URIs, local JSONL tracing, and schema access control.
 
 * **[Clone, Setup & Deployment Guide](file:///c:/Users/ISGS/Documents/kerjaan/syncrono_new/synchrono-chatbot/docs/DEPLOYMENT_AND_CLONE_GUIDE.md):**  
   Complete clone-and-run verification guide covering full Docker Compose deployment, hybrid development, offline SQLite execution, environment configurations, and production troubleshooting.

@@ -1,7 +1,7 @@
 [project]
 name = "synchrono-chatbot"
 version = "1.0.0"
-description = "Standalone Synchrono AI Chatbot Service with FastAPI, PostgreSQL, and Opik Cloud Tracing"
+description = "Standalone Synchrono AI Chatbot Service with FastAPI, PostgreSQL, and local JSONL tracing"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -16,7 +16,6 @@ dependencies = [
     "sqlalchemy>=2.0.35",
     "pymysql>=1.1.1",
     "python-dotenv>=1.2.0",
-    "opik>=2.2.85",
     "httpx>=0.28.0",
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
@@ -28,6 +27,11 @@ dependencies = [
     "valkey>=6.2.0",
     "langchain-postgres>=0.0.19",
     "pgvector>=0.3.6",
+    "fastembed>=0.9.0",
+    "boto3>=1.43.105",
+    "celery[redis]>=5.4.0",
+    "python-multipart>=0.0.32",
+    "pypdf>=6.21.2",
 ]
 
 [tool.pytest.ini_options]
@@ -38,4 +42,3 @@ markers = [
     "eval: live evaluation tests requiring LLM and database services",
 ]
 addopts = "-m 'not eval'"
-

@@ -1,206 +1,263 @@
 import json
-import pytest
 from unittest.mock import MagicMock, patch
-from langchain.messages import AIMessage, AIMessageChunk
+
+import pytest
+from langchain.messages import AIMessage
+
+from src.handler import ChatbotHandler
 
 
-@pytest.fixture
-def mock_conv_db():
-    """Mock conv_db calls so tests remain pure unit tests without disk or database access."""
-    with patch("src.handler.conv_db") as m_db:
-        m_db.conversation_exists.return_value = False
-        m_db.get_messages.return_value = []
-        m_db.insert_conversation.return_value = None
-        m_db.update_conversation_timestamp.return_value = None
-        m_db.insert_message.return_value = None
-        yield m_db
+def make_handler(cached_answer=None):
+    cache = MagicMock()
+    cache.get.return_value = cached_answer
+
+    with patch("src.handler.ChatOpenAI") as chat_openai:
+        chat_openai.return_value = MagicMock()
+        handler = ChatbotHandler(semantic_cache=cache, checkpointer=object())
+
+    handler.title_generator.generate_title = MagicMock(return_value="Judul Uji")
+    handler._trace_enabled = False
+    return handler, cache
 
 
-@pytest.fixture
-def handler(mock_conv_db):
-    """Instantiate ChatbotHandler with mocked base LLM and title generator."""
-    with patch("src.handler.ChatOpenAI") as mock_init:
-        mock_init.return_value = MagicMock()
-        from src.handler import ChatbotHandler
-        h = ChatbotHandler()
-        h.title_generator.generate_title = MagicMock(return_value="Percakapan Uji")
-        yield h
+def test_invoke_agent_returns_answer():
+    handler, _ = make_handler()
+    fake_agent = MagicMock()
+    fake_agent.invoke.return_value = {"messages": [AIMessage("Jawaban agent")]}
+
+    with patch("src.handler.create_agent", return_value=fake_agent) as create_agent:
+        result = handler.invoke(
+            thread_id="thread-agent-1",
+            question="Tampilkan ringkasan batch terbaru",
+            user_id="user-1",
+        )
+
+    assert result == "Jawaban agent"
+    create_agent.assert_called_once()
 
 
-def test_ask_success(handler, mock_conv_db):
-    """Verify ask() returns expected answer and updates conversation record on success."""
-    sample_answer = "Total batch file berhasil diproses: 5 berkas."
-    mock_agent = MagicMock()
-    mock_agent.invoke.return_value = {"messages": [AIMessage(sample_answer)]}
+def test_invoke_agent_failure_propagates():
+    handler, _ = make_handler()
+    fake_agent = MagicMock()
+    fake_agent.invoke.side_effect = RuntimeError("Model provider timeout")
 
-    with patch.object(handler, "_get_agent", return_value=mock_agent):
-        result = handler.invoke(thread_id="t-success-1", question="Berapa berkas?", user_id="u-1")
-
-    assert result == sample_answer
-    inserted_roles = [
-        call.kwargs.get("role") or (call.args[2] if len(call.args) > 2 else None)
-        for call in mock_conv_db.insert_message.call_args_list
-    ]
-    assert "human" in inserted_roles
-    assert "ai" in inserted_roles
-
-
-def test_ask_failure_reraises(handler, mock_conv_db):
-    """Verify ask() logs error and re-raises model failure without persisting fake AI answer."""
-    mock_agent = MagicMock()
-    mock_agent.invoke.side_effect = RuntimeError("Model provider timeout")
-
-    with patch.object(handler, "_get_agent", return_value=mock_agent):
+    with patch("src.handler.create_agent", return_value=fake_agent):
         with pytest.raises(RuntimeError, match="Model provider timeout"):
-            handler.invoke(thread_id="t-fail-1", question="Tampilkan ringkasan", user_id="u-1")
+            handler.invoke(
+                thread_id="thread-agent-err",
+                question="Tampilkan ringkasan batch terbaru",
+                user_id="user-1",
+            )
 
-    inserted_roles = [
-        call.kwargs.get("role") or (call.args[2] if len(call.args) > 2 else None)
-        for call in mock_conv_db.insert_message.call_args_list
+
+def test_invoke_rejects_out_of_scope_public_service_question():
+    handler, cache = make_handler()
+
+    with patch("src.handler.create_agent") as create_agent:
+        result = handler.invoke(
+            thread_id="thread-scope",
+            question="Apa syarat mengurus KTP-el?",
+            user_id="user-1",
+        )
+
+    assert "bukan prosedur layanan publik" in result
+    create_agent.assert_not_called()
+    cache.get.assert_not_called()
+
+
+def test_invoke_faq_cache_hit_skips_retrieval_and_agent(monkeypatch):
+    handler, cache = make_handler(cached_answer="Jawaban dari cache")
+    handler._lookup_platform_faq_chunks = MagicMock()
+
+    with patch("src.handler.create_agent") as create_agent:
+        result = handler.invoke(
+            thread_id="thread-faq-cache",
+            question="Apa peran AI Synchrono?",
+            user_id="user-1",
+        )
+
+    assert result == "Jawaban dari cache"
+    cache.get.assert_called_once()
+    handler._lookup_platform_faq_chunks.assert_not_called()
+    create_agent.assert_not_called()
+
+
+def test_invoke_faq_miss_synthesizes_answer_and_populates_cache():
+    handler, cache = make_handler(cached_answer=None)
+    chunks = [
+        {
+            "source": "synchrono_platform_faq.md",
+            "matched_question": "Apa peran AI Synchrono?",
+            "answer": "AI menjelaskan dan merekomendasikan.",
+        }
     ]
-    assert "human" in inserted_roles
-    assert "ai" not in inserted_roles
+    handler._lookup_platform_faq_chunks = MagicMock(return_value=chunks)
+    handler._synthesize_faq_answer = MagicMock(return_value="Jawaban sintesis FAQ")
+
+    with patch("src.handler.create_agent") as create_agent:
+        result = handler.invoke(
+            thread_id="thread-faq-miss",
+            question="Apa peran AI Synchrono?",
+            user_id="user-1",
+        )
+
+    assert result == "Jawaban sintesis FAQ"
+    handler._lookup_platform_faq_chunks.assert_called_once()
+    cache.set.assert_called_once_with("Apa peran AI Synchrono?", "Jawaban sintesis FAQ")
+    create_agent.assert_not_called()
 
 
-def test_ask_with_trajectory_success(handler, mock_conv_db):
-    """Verify ask_with_trajectory() returns trajectory, hop count, and persists conversation."""
-    sample_answer = "Semua query berhasil dijalankan."
-    tool_chunk = MagicMock()
-    tool_chunk.tool_calls = [{"name": "run_query", "args": {"query": "SELECT count(*) FROM files;"}}]
-    ai_chunk = AIMessage(sample_answer)
+def test_invoke_faq_records_answer_audit(monkeypatch):
+    monkeypatch.setenv("CHATBOT_ANSWER_AUDIT_ENABLED", "true")
+    handler, _ = make_handler(cached_answer=None)
+    handler._lookup_platform_faq_chunks = MagicMock(
+        return_value=[
+            {
+                "source": "synchrono_platform_faq.md",
+                "matched_question": "Apa peran AI Synchrono?",
+                "answer": "AI menjelaskan dan merekomendasikan.",
+                "score": 2.0,
+            }
+        ]
+    )
+    handler._synthesize_faq_answer = MagicMock(return_value="Jawaban sintesis FAQ")
 
-    mock_agent = MagicMock()
-    mock_agent.invoke.return_value = {"messages": [tool_chunk, ai_chunk]}
+    with patch("src.handler.record_answer_audit") as audit:
+        handler.invoke(
+            thread_id="thread-faq-audit",
+            question="Apa peran AI Synchrono?",
+            user_id="user-1",
+        )
 
-    with patch.object(handler, "_get_agent", return_value=mock_agent):
-        traj = handler.invoke_with_trajectory(thread_id="t-traj-1", question="Cek status", user_id="u-1")
-
-    assert traj["answer"] == sample_answer
-    assert traj["hop_count"] == 1
-    assert traj["tool_calls"] == [{"name": "run_query", "args": {"query": "SELECT count(*) FROM files;"}}]
-    assert traj["thread_id"] == "t-traj-1"
-
-    inserted_roles = [
-        call.kwargs.get("role") or (call.args[2] if len(call.args) > 2 else None)
-        for call in mock_conv_db.insert_message.call_args_list
-    ]
-    assert "human" in inserted_roles
-    assert "ai" in inserted_roles
+    audit.assert_called_once()
+    kwargs = audit.call_args.kwargs
+    assert kwargs["route"] == "faq_synthesized"
+    assert kwargs["thread_id"] == "thread-faq-audit"
+    assert kwargs["user_id"] == "user-1"
+    assert kwargs["retrieval_score"] == 2.0
+    assert kwargs["source_count"] == 1
 
 
-def test_ask_with_trajectory_failure_reraises(handler, mock_conv_db):
-    """Verify ask_with_trajectory() re-raises exceptions without fake AI persistence."""
-    mock_agent = MagicMock()
-    mock_agent.invoke.side_effect = ValueError("Rate limit reached")
+def test_invoke_faq_without_chunks_returns_not_found_message():
+    handler, cache = make_handler(cached_answer=None)
+    handler._lookup_platform_faq_chunks = MagicMock(return_value=[])
 
-    with patch.object(handler, "_get_agent", return_value=mock_agent):
-        with pytest.raises(ValueError, match="Rate limit reached"):
-            handler.invoke_with_trajectory(thread_id="t-traj-fail", question="Cek status", user_id="u-1")
+    result = handler.invoke(
+        thread_id="thread-faq-empty",
+        question="Apa peran AI Synchrono?",
+        user_id="user-1",
+    )
 
-    inserted_roles = [
-        call.kwargs.get("role") or (call.args[2] if len(call.args) > 2 else None)
-        for call in mock_conv_db.insert_message.call_args_list
-    ]
-    assert "human" in inserted_roles
-    assert "ai" not in inserted_roles
+    assert result == "Saya belum menemukan FAQ Synchrono yang cukup relevan untuk menjawab pertanyaan itu."
+    cache.set.assert_not_called()
+
+
+def test_invoke_document_content_uses_document_answer():
+    handler, cache = make_handler(cached_answer=None)
+    handler._lookup_platform_document_chunks = MagicMock(
+        return_value=[{"content": "Isi SOP", "source": "sop.md", "chunk": 1, "score": 0.9}]
+    )
+    handler._synthesize_document_answer = MagicMock(return_value="Jawaban dari dokumen")
+
+    with patch("src.handler.create_agent") as create_agent:
+        result = handler.invoke(
+            thread_id="thread-document",
+            question="Jelaskan isi dokumen SOP terbaru",
+            user_id="user-1",
+        )
+
+    assert result == "Jawaban dari dokumen"
+    handler._lookup_platform_document_chunks.assert_called_once()
+    handler._synthesize_document_answer.assert_called_once()
+    cache.set.assert_not_called()
+    create_agent.assert_not_called()
+
+
+def test_invoke_document_question_without_chunks_returns_not_found_message():
+    handler, _ = make_handler(cached_answer=None)
+    handler._lookup_platform_document_chunks = MagicMock(return_value=[])
+
+    with patch("src.handler.create_agent") as create_agent:
+        result = handler.invoke(
+            thread_id="thread-document-empty",
+            question="Jelaskan isi dokumen SOP terbaru",
+            user_id="user-1",
+        )
+
+    assert result == "Saya belum menemukan dokumen yang cukup relevan untuk menjawab pertanyaan itu."
+    create_agent.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_stream_success(handler, mock_conv_db):
-    """Verify stream() emits START, TITLE, TOOL_CALL, AIMessageChunk, and END on successful run."""
-    mock_agent = MagicMock()
+async def test_stream_document_question_emits_grounded_answer(monkeypatch):
+    handler, cache = make_handler(cached_answer=None)
+    handler._lookup_platform_document_chunks = MagicMock(
+        return_value=[{"content": "Isi SOP", "source": "sop.md", "chunk": 1, "score": 0.9}]
+    )
+    handler._synthesize_document_answer = MagicMock(return_value="Jawaban dokumen streaming")
 
-    async def sample_astream(*args, **kwargs):
-        yield AIMessageChunk(content="", tool_calls=[{"name": "get_schemas", "args": {}, "id": "call_1"}]), {"langgraph_node": "agent"}
-        yield AIMessageChunk(content="Analisis "), {"langgraph_node": "agent"}
-        yield AIMessageChunk(content="selesai."), {"langgraph_node": "agent"}
+    db = MagicMock()
+    db.query.return_value.filter_by.return_value.first.return_value = None
+    monkeypatch.setattr("src.handler.SessionLocal", lambda: db)
 
-    mock_agent.astream = sample_astream
+    checkpointed = []
 
-    with patch.object(handler, "_get_agent", return_value=mock_agent):
+    class FakeAgent:
+        async def aupdate_state(self, config, state):
+            checkpointed.append((config, state))
+
+    with patch("src.handler.create_agent", return_value=FakeAgent()):
         events = []
-        async for chunk in handler.stream(user_id="u-1", conversation_id="t-stream-ok", question="Bantu cek"):
-            events.append(chunk)
+        async for event in handler.stream(
+            user_id="user-1",
+            conversation_id="thread-document-stream",
+            question="Jelaskan isi dokumen SOP terbaru",
+        ):
+            events.append(event)
 
-    parsed_steps = []
-    for ev in events:
-        if ev.startswith("data: "):
-            payload = json.loads(ev[6:].strip())
-            parsed_steps.append(payload.get("step"))
-
-    assert "START" in parsed_steps
-    assert "TITLE" in parsed_steps
-    assert "TOOL_CALL" in parsed_steps
-    assert "AIMessageChunk" in parsed_steps
-    assert "END" in parsed_steps
-
-    ai_calls = [
-        call for call in mock_conv_db.insert_message.call_args_list
-        if (call.kwargs.get("role") == "ai" or (len(call.args) > 2 and call.args[2] == "ai"))
-    ]
-    assert len(ai_calls) == 1
+    payloads = [json.loads(event[6:].strip()) for event in events if event.startswith("data: ")]
+    assert payloads[0]["step"] == "START"
+    assert any(
+        payload["step"] == "AIMessageChunk" and payload["content"] == "Jawaban dokumen streaming"
+        for payload in payloads
+    )
+    assert payloads[-1]["step"] == "END"
+    cache.get.assert_not_called()
+    handler._lookup_platform_document_chunks.assert_called_once()
+    assert len(checkpointed) == 1
 
 
 @pytest.mark.asyncio
-async def test_stream_failure_during_astream(handler, mock_conv_db):
-    """Verify stream() failure yields ERROR, stops without END, and does not persist AI answer."""
-    mock_agent = MagicMock()
+async def test_stream_faq_cache_hit_emits_answer_without_retrieval(monkeypatch):
+    handler, cache = make_handler(cached_answer="Jawaban cache streaming")
+    handler._lookup_platform_faq_chunks = MagicMock()
 
-    async def failing_astream(*args, **kwargs):
-        yield AIMessageChunk(content="Mulai "), {"langgraph_node": "agent"}
-        raise RuntimeError("LLM stream disconnected unexpectedly")
+    db = MagicMock()
+    db.query.return_value.filter_by.return_value.first.return_value = None
+    monkeypatch.setattr("src.handler.SessionLocal", lambda: db)
 
-    mock_agent.astream = failing_astream
+    checkpointed = []
 
-    with patch.object(handler, "_get_agent", return_value=mock_agent):
+    class FakeAgent:
+        async def aupdate_state(self, config, state):
+            checkpointed.append((config, state))
+
+    with patch("src.handler.create_agent", return_value=FakeAgent()):
         events = []
-        async for chunk in handler.stream(user_id="u-1", conversation_id="t-stream-err", question="Koneksi terputus"):
-            events.append(chunk)
+        async for event in handler.stream(
+            user_id="user-1",
+            conversation_id="thread-faq-stream",
+            question="Apa peran AI Synchrono?",
+        ):
+            events.append(event)
 
-    parsed_steps = []
-    error_payload = None
-    for ev in events:
-        if ev.startswith("data: "):
-            payload = json.loads(ev[6:].strip())
-            parsed_steps.append(payload.get("step"))
-            if payload.get("step") == "ERROR":
-                error_payload = payload
-
-    assert "START" in parsed_steps
-    assert "AIMessageChunk" in parsed_steps
-    assert "ERROR" in parsed_steps
-    assert "END" not in parsed_steps
-    assert error_payload is not None
-    assert "Maaf, terjadi kendala saat memproses respons AI." in error_payload["content"]
-    assert "LLM stream disconnected unexpectedly" not in error_payload["content"]
-
-    ai_calls = [
-        call for call in mock_conv_db.insert_message.call_args_list
-        if (call.kwargs.get("role") == "ai" or (len(call.args) > 2 and call.args[2] == "ai"))
-    ]
-    assert len(ai_calls) == 0
-
-
-@pytest.mark.asyncio
-async def test_stream_failure_during_get_agent(handler, mock_conv_db):
-    """Verify stream() failure during _get_agent yields ERROR and stops without END or AI save."""
-    with patch.object(handler, "_get_agent", side_effect=RuntimeError("Agent creation failed")):
-        events = []
-        async for chunk in handler.stream(user_id="u-1", conversation_id="t-stream-agent-err", question="Test"):
-            events.append(chunk)
-
-    parsed_steps = []
-    for ev in events:
-        if ev.startswith("data: "):
-            payload = json.loads(ev[6:].strip())
-            parsed_steps.append(payload.get("step"))
-
-    assert "START" in parsed_steps
-    assert "ERROR" in parsed_steps
-    assert "END" not in parsed_steps
-
-    ai_calls = [
-        call for call in mock_conv_db.insert_message.call_args_list
-        if (call.kwargs.get("role") == "ai" or (len(call.args) > 2 and call.args[2] == "ai"))
-    ]
-    assert len(ai_calls) == 0
+    payloads = [json.loads(event[6:].strip()) for event in events if event.startswith("data: ")]
+    assert payloads[0]["step"] == "START"
+    assert any(
+        payload["step"] == "AIMessageChunk" and payload["content"] == "Jawaban cache streaming"
+        for payload in payloads
+    )
+    assert payloads[-1]["step"] == "END"
+    cache.get.assert_called_once()
+    handler._lookup_platform_faq_chunks.assert_not_called()
+    assert len(checkpointed) == 1

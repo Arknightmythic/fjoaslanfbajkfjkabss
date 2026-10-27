@@ -59,12 +59,12 @@ The Synchrono AI Chatbot operates as a standalone microservice providing automat
            |                                 |
            v                                 v
 +-----------------------+         +-------------------------------------+
-|   PostgreSQL Server   |         |         Observability Cloud         |
-|   (Container :5433)   |         |             (Opik Cloud)            |
+|   PostgreSQL Server   |         |      Local JSONL Trace Storage      |
+|   (Container :5433)   |         |       (Local JSONL trace file)      |
 |                       |         |                                     |
-|  [synchrono_chatbot]  |         |  - Step latency and token tracking  |
-|  - conversations      |         |  - Tool call trace logs             |
-|  - messages           |         |  - Inference cost monitoring        |
+|  [synchrono_chatbot]  |         |  - Event and step durations         |
+|  - conversations      |         |  - Model/tool lifecycle metadata    |
+|  - messages           |         |  - No prompt/output payloads        |
 |                       |         +-------------------------------------+
 |  [synchrono (RO)]     |
 |  - uploaded_files     |
@@ -252,7 +252,7 @@ The evaluation suite is integrated directly into pytest in `src/tests/` (replaci
   ```bash
   uv run pytest -v
   ```
-  Runs fast deterministic tests and offline trajectory evaluation assertions (`testpaths = ["src/tests"]`, `addopts = "-m 'not eval'"`). Tests run against an isolated temporary SQLite conversation database and seeded in-memory demo analytics. Opik observability is disabled during test runs.
+  Runs fast deterministic tests and offline trajectory evaluation assertions (`testpaths = ["src/tests"]`, `addopts = "-m 'not eval'"`). Tests run against an isolated temporary SQLite conversation database and seeded in-memory demo analytics. Local file tracing may be disabled during test runs with `CHATBOT_FILE_TRACE_ENABLED=false`.
 
 * **Live Model Trajectory Evaluation:**
   ```bash

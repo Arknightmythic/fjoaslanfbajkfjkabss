@@ -9,6 +9,9 @@ from src.databases.internal.models.ref_match_result import RefMatchResult
 from src.databases.internal.models.uploaded_file import UploadedFile
 from src.databases.internal.models.manual_match import ManualMatch
 from src.databases.internal.models.institution import Institution
+from src.databases.internal.models.knowledge_document import KnowledgeDocument
+from src.databases.internal.models.knowledge_index_state import KnowledgeIndexState
+from src.databases.internal.models.answer_audit import AnswerAudit
 
 __all__ = [
     "Base",
@@ -22,4 +25,7 @@ __all__ = [
     "UploadedFile",
     "ManualMatch",
     "Institution",
+    "KnowledgeDocument",
+    "KnowledgeIndexState",
+    "AnswerAudit",
 ]

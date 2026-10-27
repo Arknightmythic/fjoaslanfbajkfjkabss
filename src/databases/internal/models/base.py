@@ -4,5 +4,8 @@ Base = declarative_base()
 
 
 def init_db(engine=None):
-    from src.databases.internal.store import initialize_schema
-    initialize_schema(engine=engine)
+    if engine is None:
+        from src.databases.internal.config import engine as default_engine
+
+        engine = default_engine
+    Base.metadata.create_all(bind=engine)

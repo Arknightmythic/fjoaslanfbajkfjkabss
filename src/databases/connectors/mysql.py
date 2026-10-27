@@ -1,4 +1,6 @@
-from typing import Optional
+import os
+import time
+from typing import Any, Mapping, Optional
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
 from loguru import logger
@@ -7,11 +9,16 @@ from sqlglot import exp
 
 from src.databases.connectors.base import DatabaseConnector
 
+_TRANSIENT_DB_CODES = {2003, 2006, 2013, 2014, 2045, 2055}
+
 
 class MySQLConnector(DatabaseConnector):
 
     def __init__(self, host: str, port: int, database: str, username: str, password: str):
         self._db = database
+        connect_timeout = max(1, int(os.getenv("DB_CONNECT_TIMEOUT", "5")))
+        read_timeout = max(1, int(os.getenv("DB_READ_TIMEOUT", "15")))
+        self._max_retries = max(0, int(os.getenv("DB_MAX_RETRIES", "2")))
         url = URL.create(
             drivername="mysql+pymysql",
             username=username,
@@ -23,6 +30,11 @@ class MySQLConnector(DatabaseConnector):
         self._engine = create_engine(
             url,
             pool_pre_ping=True,
+            connect_args={
+                "connect_timeout": connect_timeout,
+                "read_timeout": read_timeout,
+                "write_timeout": read_timeout,
+            },
         )
         logger.info(f"MySQLConnector initialised: {username}@{host}:{port}/{database}")
 
@@ -87,6 +99,48 @@ class MySQLConnector(DatabaseConnector):
             sample += "\n" + "\t".join(str(c) for c in row)
         return f"### TABLE {table_name} DDL\n{ddl}\n\n### SAMPLE DATA\n{sample}"
 
+    @staticmethod
+    def _is_transient_error(exc: Exception) -> bool:
+        orig = getattr(exc, "orig", exc)
+        args = getattr(orig, "args", ())
+        code = args[0] if args and isinstance(args[0], int) else None
+        if code in _TRANSIENT_DB_CODES:
+            return True
+        message = str(exc).lower()
+        return any(
+            marker in message
+            for marker in (
+                "timed out",
+                "lost connection",
+                "server has gone away",
+                "deadlock",
+            )
+        )
+
+    def _execute(
+        self,
+        query: str,
+        params: Optional[Mapping[str, Any]] = None,
+    ) -> tuple[list[str], list[Any]]:
+        max_retries = getattr(self, "_max_retries", 0)
+        for attempt in range(max_retries + 1):
+            try:
+                with self._engine.connect() as conn:
+                    cur = conn.execute(text(query), dict(params or {}))
+                    columns = list(cur.keys())
+                    rows = cur.fetchall()
+                return columns, rows
+            except Exception as exc:
+                if attempt >= max_retries or not self._is_transient_error(exc):
+                    raise
+                delay = 0.5 * (2**attempt)
+                logger.warning(
+                    f"MySQLConnector transient error on attempt {attempt + 1}; "
+                    f"retrying in {delay}s: {exc}"
+                )
+                time.sleep(delay)
+        raise RuntimeError("unreachable")
+
     def execute_query(self, query: str) -> str:
         err = self._check_forbidden(query)
         if err:
@@ -94,10 +148,7 @@ class MySQLConnector(DatabaseConnector):
         if self._has_forbidden_tables(query):
             return "[WARNING] Query references forbidden internal tables."
         try:
-            with self._engine.connect() as conn:
-                cur = conn.execute(text(query))
-                cols = list(cur.keys())
-                rows = cur.fetchall()
+            cols, rows = self._execute(query)
             result = "\t".join(cols)
             for row in rows:
                 result += "\n" + "\t".join(str(c) for c in row)
@@ -105,3 +156,20 @@ class MySQLConnector(DatabaseConnector):
         except Exception as e:
             logger.error(f"MySQLConnector.execute_query error: {e}")
             return self.diagnose_query_error(query, e)
+
+    def fetch_all(
+        self,
+        query: str,
+        params: Optional[Mapping[str, Any]] = None,
+    ) -> list[dict[str, Any]]:
+        err = self._check_forbidden(query)
+        if err:
+            raise ValueError(err)
+        if self._has_forbidden_tables(query):
+            raise ValueError("[WARNING] Query references forbidden internal tables.")
+        try:
+            columns, rows = self._execute(query, params)
+            return [dict(zip(columns, row)) for row in rows]
+        except Exception as e:
+            logger.error(f"MySQLConnector.fetch_all error: {e}")
+            raise

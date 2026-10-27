@@ -11,6 +11,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 from langchain_openai import ChatOpenAI
 from langgraph.runtime import Runtime
 from src.prompts import PROMPT_INJECTION_GUARDRAIL_PROMPT
+from src.observability.file_tracer import current_tracer
 
 load_dotenv()
 
@@ -56,6 +57,9 @@ class PromptInjectionGuardrail(AgentMiddleware):
             return {"jump_to": "model"}
 
         text = last_message.content if isinstance(last_message.content, str) else str(last_message.content)
+        tracer = current_tracer()
+        if tracer:
+            tracer.log_event("guardrail.check_started")
 
         malicious_patterns = [
             r"ignore\s+(all\s+)?(previous\s+)?instructions",
@@ -67,6 +71,8 @@ class PromptInjectionGuardrail(AgentMiddleware):
         ]
         for pat in malicious_patterns:
             if re.search(pat, text, re.IGNORECASE):
+                if tracer:
+                    tracer.log_event("guardrail.check_completed", decision="blocked", match_type="heuristic")
                 return {
                     "jump_to": "end",
                     "messages": [AIMessageChunk("Maaf, permintaan ini tidak dapat diproses karena alasan keamanan sistem.")]
@@ -74,9 +80,17 @@ class PromptInjectionGuardrail(AgentMiddleware):
 
         if self._chain:
             try:
-                result: PromptInjectionGuardrailOutput = self._chain.invoke({"user_query": text})
+                result: PromptInjectionGuardrailOutput = self._chain.invoke(
+                    {"user_query": text},
+                    config={"callbacks": [tracer] if tracer else []},
+                )
                 if result.is_dangerous:
-                    return {"jump_to": "end", "messages": [AIMessageChunk(result.answer)]}
+                    if tracer:
+                        tracer.log_event("guardrail.check_completed", decision="blocked")
+                    refusal = result.answer or "Maaf, permintaan ini melanggar kebijakan keamanan sistem."
+                    return {"jump_to": "end", "messages": [AIMessageChunk(refusal)]}
+                if tracer:
+                    tracer.log_event("guardrail.check_completed", decision="allowed")
             except Exception as e:
                 try:
                     match = re.search(r"\{.*?\}", str(e), re.DOTALL)
@@ -84,6 +98,8 @@ class PromptInjectionGuardrail(AgentMiddleware):
                         import json
                         data = json.loads(match.group(0))
                         if data.get("is_dangerous"):
+                            if tracer:
+                                tracer.log_event("guardrail.check_completed", decision="blocked")
                             raw_answer = data.get("answer")
                             refusal = raw_answer if raw_answer else "Maaf, permintaan ini melanggar kebijakan keamanan sistem."
                             return {"jump_to": "end", "messages": [AIMessageChunk(refusal)]}
@@ -91,5 +107,9 @@ class PromptInjectionGuardrail(AgentMiddleware):
                 except Exception:
                     pass
                 logger.warning("Guardrail Notice: LLM evaluation skipped/timed out: {}", e)
+                if tracer:
+                    tracer.log_event("guardrail.check_failed", error_type=type(e).__name__)
 
+        elif tracer:
+            tracer.log_event("guardrail.check_skipped", reason="guardrail_model_unavailable")
         return {"jump_to": "model"}

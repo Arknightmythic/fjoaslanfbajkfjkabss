@@ -4,12 +4,16 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 import asyncio
+import json
+import logging
 
 from src.handler import ChatbotHandler, TitleGenerator
+from src.messages import GENERIC_FALLBACK_MESSAGE
 from src.databases import get_db
 
 router = APIRouter(tags=["chat"])
 chatbot_handler = ChatbotHandler()
+logger = logging.getLogger(__name__)
 
 
 class ChatRequest(BaseModel):
@@ -33,6 +37,9 @@ async def chat_endpoint(req: ChatRequest, request: Request):
                 yield chunk
         except asyncio.CancelledError:
             pass
+        except Exception as exc:
+            logger.exception("Unhandled chat stream error: %s", exc)
+            yield f"data: {json.dumps({'step': 'ERROR', 'content': GENERIC_FALLBACK_MESSAGE})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 

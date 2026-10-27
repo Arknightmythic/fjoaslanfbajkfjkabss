@@ -31,6 +31,7 @@ def test_representative_endpoints(isolated_app):
     data = health_res.json()
     assert data.get("status") == "healthy"
     assert data.get("service") == "synchrono-chatbot"
+    assert data == {"status": "healthy", "service": "synchrono-chatbot"}
 
     # Static web UI endpoints
     ui_res = client.get("/")

@@ -216,7 +216,7 @@ def judge_factuality(response: str, test_case: Dict[str, Any], ground_truth_data
 
     response_lower = response.lower()
 
-    # Parse ground truth data (tab-separated format from query_engine)
+    # Parse ground truth data (tab-separated connector output)
     gt_lines = ground_truth_data.strip().split("\n")
     if len(gt_lines) < 2:
         # Empty or header-only result

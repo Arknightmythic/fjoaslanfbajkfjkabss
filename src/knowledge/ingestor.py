@@ -10,7 +10,8 @@ from langchain_postgres import PGVector
 
 from src.databases.internal.config import INTERNAL_DB_URL, engine
 from src.handler import _get_default_embedding
-from src.knowledge.parser import clean_markdown
+from src.knowledge.parser import chunk_document_text, clean_markdown
+from src.knowledge.source_types import DOCUMENT, FAQ, collection_name_for, normalize_source_type
 from src.semantic_cache import SemanticCache
 
 load_dotenv()
@@ -26,7 +27,7 @@ class Ingestor:
         collection_name: Optional[str] = None,
     ):
         self._embedding = embedding if embedding is not None else _get_default_embedding()
-        self._collection_name = collection_name or os.getenv("PGVECTOR_COLLECTION_NAME", "synchrono_faq_docs")
+        self._collection_name = collection_name or collection_name_for(FAQ)
         self._engine = connection or engine
 
         # 1. Initialize Semantic Cache
@@ -59,8 +60,16 @@ class Ingestor:
                 logger.warning(f"[Ingestor] Failed to initialize PGVector with database engine: {e}")
                 self._vector_store = None
 
+        self._processed_versioned_file_hashes: dict[tuple[str, int], set[str]] = {}
+        self._processed_versioned_chunk_hashes: dict[tuple[str, int], set[str]] = {}
+
         # 3. Load already processed hashes
         self._processed_file_hashes, self._processed_chunk_hashes = self._get_exists_hashed()
+
+    @property
+    def is_ready(self) -> bool:
+        """Whether a vector store is connected for persistent ingestion."""
+        return self._vector_store is not None
 
     def _get_exists_hashed(self) -> tuple[set, set]:
         processed_file_hashes = set()
@@ -81,10 +90,19 @@ class Ingestor:
                     meta = raw_meta if isinstance(raw_meta, dict) else json.loads(raw_meta)
                     f_hash = meta.get("file_hash")
                     c_hash = meta.get("chunk_hash")
+                    faq_version = meta.get("faq_version")
                     if f_hash:
                         processed_file_hashes.add(f_hash)
                     if c_hash:
                         processed_chunk_hashes.add(c_hash)
+                    if faq_version is not None:
+                        source_type = normalize_source_type(meta.get("source_type"))
+                        version = int(faq_version)
+                        scope = (source_type, version)
+                        if f_hash:
+                            self._processed_versioned_file_hashes.setdefault(scope, set()).add(f_hash)
+                        if c_hash:
+                            self._processed_versioned_chunk_hashes.setdefault(scope, set()).add(c_hash)
         except Exception as e:
             logger.debug(f"[Ingestor] Note: Existing hash query skipped (table may not exist yet): {e}")
 
@@ -97,15 +115,50 @@ class Ingestor:
                 sha256_hash.update(byte_block)
         return sha256_hash.hexdigest()
 
-    def ingest_file(self, file_path: Union[str, Path]) -> dict:
+    def _read_document_text(self, file_path: Path) -> str:
+        """Extract UTF-8 text or PDF page text while preserving page boundaries."""
+        if file_path.suffix.lower() != ".pdf":
+            return file_path.read_text(encoding="utf-8")
+
+        from pypdf import PdfReader
+
+        try:
+            reader = PdfReader(str(file_path))
+            pages = [(page.extract_text() or "").strip() for page in reader.pages]
+        except Exception as exc:
+            raise ValueError(f"Could not extract text from PDF {file_path.name}") from exc
+        text_pages = [page for page in pages if page]
+        if not text_pages:
+            raise ValueError(
+                f"PDF {file_path.name} contains no extractable text; scanned/image-only PDFs require OCR before FAQ ingestion"
+            )
+        return "\n\n<!-- page break -->\n\n".join(text_pages)
+
+    def ingest_file(
+        self,
+        file_path: Union[str, Path],
+        *,
+        faq_version: Optional[int] = None,
+        clear_cache: bool = True,
+        source_type: str = FAQ,
+        document_id: Optional[str] = None,
+        document_version: Optional[int] = None,
+        ingested_at_wib: Optional[str] = None,
+    ) -> dict:
         file_path = Path(file_path)
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
 
+        source_type = normalize_source_type(source_type)
         file_hash = self._compute_file_hash(file_path)
 
         # Level 1: File-Level Check
-        if file_hash in self._processed_file_hashes:
+        file_hashes_for_scope = (
+            self._processed_file_hashes
+            if faq_version is None
+            else self._processed_versioned_file_hashes.get((source_type, faq_version), set())
+        )
+        if file_hash in file_hashes_for_scope:
             logger.info(f"[Ingestor] File {file_path.name} unchanged (hash matched). Skipping ingestion.")
             return {
                 "file": file_path.name,
@@ -115,30 +168,25 @@ class Ingestor:
                 "cache_cleared": False,
             }
 
-        path_str = str(file_path).lower()
-        if "markdown" in path_str or ".md" in path_str:
-            content_type = "text"
-            doc_name = file_path.name
-        elif "tables" in path_str:
-            content_type = "tables"
-            doc_name = file_path.parent.name
-        elif "images" in path_str:
-            content_type = "image"
-            doc_name = file_path.parent.name
-        else:
-            content_type = "text"
-            doc_name = file_path.name
-
-        content = file_path.read_text(encoding="utf-8")
+        content_type = "pdf" if file_path.suffix.lower() == ".pdf" else "text"
+        doc_name = file_path.name
+        content = self._read_document_text(file_path)
         return self._ingest_content(
             content=content,
             doc_name=doc_name,
             content_type=content_type,
             file_hash=file_hash,
             source_file=file_path.name,
+            faq_version=faq_version,
+            clear_cache=clear_cache,
+            source_type=source_type,
+            document_id=document_id,
+            document_version=document_version,
+            ingested_at_wib=ingested_at_wib,
         )
 
-    def ingest_text(self, content: str, doc_name: str = "custom_document.md") -> dict:
+    def ingest_text(self, content: str, doc_name: str = "custom_document.md", source_type: str = FAQ) -> dict:
+        source_type = normalize_source_type(source_type)
         file_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
         if file_hash in self._processed_file_hashes:
             logger.info(f"[Ingestor] Content for {doc_name} unchanged (hash matched). Skipping ingestion.")
@@ -156,6 +204,12 @@ class Ingestor:
             content_type="text",
             file_hash=file_hash,
             source_file=doc_name,
+            faq_version=None,
+            clear_cache=True,
+            source_type=source_type,
+            document_id=None,
+            document_version=None,
+            ingested_at_wib=None,
         )
 
     def _ingest_content(
@@ -165,22 +219,49 @@ class Ingestor:
         content_type: str,
         file_hash: str,
         source_file: str,
+        faq_version: Optional[int] = None,
+        clear_cache: bool = True,
+        source_type: str = FAQ,
+        document_id: Optional[str] = None,
+        document_version: Optional[int] = None,
+        ingested_at_wib: Optional[str] = None,
     ) -> dict:
+        source_type = normalize_source_type(source_type)
         base_metadata = {
             "doc_name": doc_name,
             "content_type": content_type,
             "file_hash": file_hash,
             "source_file": source_file,
+            "source_type": source_type,
         }
+        if faq_version is not None:
+            base_metadata["faq_version"] = faq_version
+        if document_version is not None:
+            base_metadata["document_version"] = document_version
+        if document_id is not None:
+            base_metadata["document_id"] = document_id
+        if ingested_at_wib is not None:
+            base_metadata["ingested_at_wib"] = ingested_at_wib
 
         pages = clean_markdown(content)
+        if source_type == DOCUMENT:
+            pages = [
+                chunk
+                for page in pages
+                for chunk in chunk_document_text(page)
+            ]
         documents = []
 
         for idx, page in enumerate(pages, start=1):
             chunk_hash = hashlib.sha256(page.encode("utf-8")).hexdigest()
 
             # Level 2: Chunk-Level Check
-            if chunk_hash in self._processed_chunk_hashes:
+            known_chunks = (
+                self._processed_chunk_hashes
+                if faq_version is None
+                else self._processed_versioned_chunk_hashes.get((source_type, faq_version), set())
+            )
+            if chunk_hash in known_chunks:
                 logger.debug(f"[Ingestor] FAQ #{idx} already exists in vector store. Skipping duplicate.")
                 continue
 
@@ -210,12 +291,18 @@ class Ingestor:
 
         # Update in-memory hash tracking
         self._processed_file_hashes.add(file_hash)
+        if faq_version is not None:
+            scope = (source_type, faq_version)
+            self._processed_versioned_file_hashes.setdefault(scope, set()).add(file_hash)
         for doc in documents:
             self._processed_chunk_hashes.add(doc.metadata["chunk_hash"])
+            if faq_version is not None:
+                scope = (source_type, faq_version)
+                self._processed_versioned_chunk_hashes.setdefault(scope, set()).add(doc.metadata["chunk_hash"])
 
-        # CONDITION: when there is a new ingestment, clear all the cache!
+        # Only FAQ answers are cached; document ingestion must not invalidate them.
         cache_cleared = False
-        if self._semantic_cache is not None:
+        if clear_cache and source_type == FAQ and self._semantic_cache is not None:
             cleared_items = self._semantic_cache.clear()
             cache_cleared = True
             logger.info(
@@ -248,7 +335,7 @@ class Ingestor:
 
 
 if __name__ == "__main__":
-    default_faq_path = Path(__file__).parent / "faq" / "dukcapil_faq.md"
+    default_faq_path = Path(__file__).parent / "faq" / "synchrono_platform_faq.md"
     if default_faq_path.exists():
         ingestor = Ingestor()
         summary = ingestor.ingest_file(default_faq_path)

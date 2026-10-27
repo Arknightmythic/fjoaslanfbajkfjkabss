@@ -1,6 +1,6 @@
 services:
   postgres-chatbot:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: synchrono-chatbot-db
     restart: unless-stopped
     environment:
@@ -20,6 +20,116 @@ services:
     networks:
       - synchrono-network
 
+  valkey:
+    image: valkey/valkey-bundle:9.1.3-alpine
+    container_name: synchrono-chatbot-valkey
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: ["valkey-server", "--appendonly", "yes"]
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - synchrono-network
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.17
+    container_name: synchrono-chatbot-seaweedfs
+    restart: unless-stopped
+    command: ["mini", "-dir=/data", "-s3.port=8333", "-master.port=9333", "-filer.port=8888"]
+    environment:
+      AWS_ACCESS_KEY_ID: ${SEAWEEDFS_ACCESS_KEY:?Set SEAWEEDFS_ACCESS_KEY in .env}
+      AWS_SECRET_ACCESS_KEY: ${SEAWEEDFS_SECRET_KEY:?Set SEAWEEDFS_SECRET_KEY in .env}
+      S3_BUCKET: ${SEAWEEDFS_BUCKET:-chatbot-documents}
+    ports:
+      - "127.0.0.1:8333:8333"
+      - "127.0.0.1:8888:8888"
+      - "127.0.0.1:9333:9333"
+      - "127.0.0.1:23646:23646"
+    volumes:
+      - seaweedfs_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9333/cluster/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - synchrono-network
+
+  document-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: synchrono-chatbot-document-worker
+    restart: unless-stopped
+    profiles:
+      - app
+    env_file:
+      - .env
+    environment:
+      INTERNAL_HOST: postgres-chatbot
+      INTERNAL_PORT: 5432
+      VALKEY_HOST: valkey
+      VALKEY_PORT: 6379
+      S3_ENDPOINT_URL: http://seaweedfs:8333
+      S3_BUCKET: ${SEAWEEDFS_BUCKET:-chatbot-documents}
+      KNOWLEDGE_INGEST_PREFIX: ${KNOWLEDGE_INGEST_PREFIX:-faq-inbox/}
+      KNOWLEDGE_DOCUMENT_INGEST_PREFIX: ${KNOWLEDGE_DOCUMENT_INGEST_PREFIX:-document-inbox/}
+      PGVECTOR_COLLECTION_NAME: ${PGVECTOR_COLLECTION_NAME:-synchrono_faq_docs}
+      PGVECTOR_DOCUMENT_COLLECTION_NAME: ${PGVECTOR_DOCUMENT_COLLECTION_NAME:-synchrono_documents}
+      AWS_ACCESS_KEY_ID: ${SEAWEEDFS_ACCESS_KEY:?Set SEAWEEDFS_ACCESS_KEY in .env}
+      AWS_SECRET_ACCESS_KEY: ${SEAWEEDFS_SECRET_KEY:?Set SEAWEEDFS_SECRET_KEY in .env}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      CELERY_BROKER_URL: redis://valkey:6379/1
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["chown -R synchrono:synchrono /tmp/fastembed_cache && exec su -s /bin/sh synchrono -c '/app/.venv/bin/celery -A src.celery_app.celery_app worker --loglevel=INFO --queues=document_ingest --concurrency=2'"]
+    volumes:
+      - ./data:/app/data
+      - fastembed_model_cache:/tmp/fastembed_cache
+    healthcheck:
+      test: ["CMD-SHELL", "/app/.venv/bin/celery -A src.celery_app.celery_app inspect ping --timeout=5 | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      postgres-chatbot:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+    networks:
+      - synchrono-network
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: synchrono-chatbot-celery-beat
+    restart: unless-stopped
+    profiles:
+      - app
+    env_file:
+      - .env
+    environment:
+      CELERY_BROKER_URL: redis://valkey:6379/1
+    command: ["/app/.venv/bin/celery", "-A", "src.celery_app.celery_app", "beat", "--loglevel=INFO"]
+    healthcheck:
+      disable: true
+    depends_on:
+      valkey:
+        condition: service_healthy
+    networks:
+      - synchrono-network
+
   chatbot-api:
     build:
       context: .
@@ -29,16 +139,36 @@ services:
     profiles:
       - app
     ports:
-      - "127.0.0.1:${PORT:-8000}:8000"
+      - "127.0.0.1:8001:8000"
     env_file:
       - .env
     environment:
       INTERNAL_HOST: postgres-chatbot
       INTERNAL_PORT: 5432
+      VALKEY_HOST: valkey
+      VALKEY_PORT: 6379
+      S3_ENDPOINT_URL: http://seaweedfs:8333
+      S3_BUCKET: ${SEAWEEDFS_BUCKET:-chatbot-documents}
+      KNOWLEDGE_INGEST_PREFIX: ${KNOWLEDGE_INGEST_PREFIX:-faq-inbox/}
+      KNOWLEDGE_DOCUMENT_INGEST_PREFIX: ${KNOWLEDGE_DOCUMENT_INGEST_PREFIX:-document-inbox/}
+      PGVECTOR_COLLECTION_NAME: ${PGVECTOR_COLLECTION_NAME:-synchrono_faq_docs}
+      PGVECTOR_DOCUMENT_COLLECTION_NAME: ${PGVECTOR_DOCUMENT_COLLECTION_NAME:-synchrono_documents}
+      AWS_ACCESS_KEY_ID: ${SEAWEEDFS_ACCESS_KEY:?Set SEAWEEDFS_ACCESS_KEY in .env}
+      AWS_SECRET_ACCESS_KEY: ${SEAWEEDFS_SECRET_KEY:?Set SEAWEEDFS_SECRET_KEY in .env}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      CELERY_BROKER_URL: redis://valkey:6379/1
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["chown -R synchrono:synchrono /tmp/fastembed_cache && exec su -s /bin/sh synchrono -c '/app/.venv/bin/uvicorn src.api.server:app --host 0.0.0.0 --port 8000'"]
     volumes:
       - ./data:/app/data
+      - fastembed_model_cache:/tmp/fastembed_cache
     depends_on:
       postgres-chatbot:
+        condition: service_healthy
+      valkey:
+        condition: service_started
+      seaweedfs:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v1/health || exit 1"]
@@ -57,5 +187,9 @@ networks:
 volumes:
   postgres_chatbot_data:
     name: synchrono_chatbot_data
-
-  
+  valkey_data:
+    name: synchrono_valkey_data
+  seaweedfs_data:
+    name: synchrono_seaweedfs_data
+  fastembed_model_cache:
+    name: synchrono_fastembed_model_cache

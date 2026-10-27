@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from loguru import logger
 
-from src.api.routers import chat, ui, ingest
+from src.api.routers import chat, ui, ingest, documents
 
 load_dotenv()
 
@@ -24,6 +24,7 @@ app.add_middleware(
 
 app.include_router(chat.router)
 app.include_router(ingest.router)
+app.include_router(documents.router)
 
 if ui.STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(ui.STATIC_DIR)), name="static")

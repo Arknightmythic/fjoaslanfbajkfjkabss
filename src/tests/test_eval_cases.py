@@ -16,6 +16,18 @@ with open(TEST_CASES_PATH, "r", encoding="utf-8") as f:
 CASE_MAP = {tc["id"]: tc for tc in ALL_CASES}
 
 
+def _invoke_case(handler: Any, thread_id: str, question: str, user_id: str) -> Dict[str, Any]:
+    """Normalize the current handler.invoke contract into the evaluation result shape."""
+    result = handler.invoke(
+        thread_id=thread_id,
+        question=question,
+        user_id=user_id,
+    )
+    if isinstance(result, dict):
+        return result
+    return {"answer": str(result), "tool_calls": []}
+
+
 def run_eval_trajectory_with_bootstrap(
     handler: Any,
     test_case: Dict[str, Any],
@@ -31,64 +43,52 @@ def run_eval_trajectory_with_bootstrap(
                 f"Unknown or missing prerequisite scenario '{follow_up_to}' for test case '{test_case.get('id')}'"
             )
         parent_case = case_map[follow_up_to]
-        handler.invoke_with_trajectory(
-            thread_id=thread_id,
-            question=parent_case["question"],
-            user_id=user_id,
-        )
+        _invoke_case(handler, thread_id, parent_case["question"], user_id)
 
-    return handler.invoke_with_trajectory(
-        thread_id=thread_id,
-        question=test_case["question"],
-        user_id=user_id,
-    )
+    return _invoke_case(handler, thread_id, test_case["question"], user_id)
 
 
 @pytest.mark.eval
 @pytest.mark.parametrize("test_case", ALL_CASES, ids=[tc["id"] for tc in ALL_CASES])
 def test_eval_case(test_case):
     """Run trajectory evaluation for a single test case with lazy imports and prerequisite bootstrapping."""
+    from src.databases import get_active_connector
     from src.handler import ChatbotHandler
-    from src.databases import conv_db, query_engine
     from src.tests.judges import evaluate_case
 
     handler = ChatbotHandler()
     tc_id = test_case["id"]
     thread_id = f"eval-{tc_id}-{uuid.uuid4().hex[:8]}"
 
-    try:
-        res_obj = run_eval_trajectory_with_bootstrap(
-            handler=handler,
-            test_case=test_case,
-            case_map=CASE_MAP,
-            thread_id=thread_id,
-        )
-        response = res_obj["answer"]
-        tool_calls = res_obj.get("tool_calls", [])
+    res_obj = run_eval_trajectory_with_bootstrap(
+        handler=handler,
+        test_case=test_case,
+        case_map=CASE_MAP,
+        thread_id=thread_id,
+    )
+    response = res_obj["answer"]
+    tool_calls = res_obj.get("tool_calls", [])
 
-        # Run ground truth query if applicable
-        gt_query = test_case.get("ground_truth_query")
-        gt_data = None
-        if gt_query:
-            try:
-                result = query_engine.execute_query(gt_query)
-                gt_data = str(result)
-            except Exception as e:
-                gt_data = f"ERROR: {e}"
+    # Run ground truth query if applicable
+    gt_query = test_case.get("ground_truth_query")
+    gt_data = None
+    if gt_query:
+        try:
+            gt_data = str(get_active_connector().execute_query(gt_query))
+        except Exception as e:
+            gt_data = f"ERROR: {e}"
 
-        # Evaluate against deterministic rubric
-        eval_result = evaluate_case(
-            response=response,
-            test_case=test_case,
-            tool_calls=tool_calls,
-            ground_truth_data=gt_data,
-        )
+    # Evaluate against deterministic rubric
+    eval_result = evaluate_case(
+        response=response,
+        test_case=test_case,
+        tool_calls=tool_calls,
+        ground_truth_data=gt_data,
+    )
 
-        assert eval_result["pass"] is True, (
-            f"Case {tc_id} failed evaluation.\n"
-            f"Total score: {eval_result['total_score']}/{eval_result['max_possible']}\n"
-            f"Details: {eval_result['scores']}\n"
-            f"Response: {response}"
-        )
-    finally:
-        conv_db.delete_conversation(thread_id)
+    assert eval_result["pass"] is True, (
+        f"Case {tc_id} failed evaluation.\n"
+        f"Total score: {eval_result['total_score']}/{eval_result['max_possible']}\n"
+        f"Details: {eval_result['scores']}\n"
+        f"Response: {response}"
+    )

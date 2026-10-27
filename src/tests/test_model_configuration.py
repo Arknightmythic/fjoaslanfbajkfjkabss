@@ -4,6 +4,7 @@ import socket
 import sys
 import types
 from typing import Any, Callable, Dict, Optional
+from unittest.mock import MagicMock
 import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langchain_core.runnables import RunnableLambda
@@ -12,6 +13,8 @@ from langchain_openai import ChatOpenAI
 
 class SpyChatModel(RunnableLambda):
     """Spy chat model that records constructor kwargs and mock-evaluates LCEL chains."""
+
+    _llm_type = "spy-chat"
 
     def __init__(self, responder: Optional[Callable[[Any], AIMessage]] = None, **kwargs):
         self.spy_kwargs = kwargs
@@ -37,14 +40,17 @@ class SpyChatModel(RunnableLambda):
 
 @pytest.fixture(autouse=True)
 def block_sockets(monkeypatch):
-    """Ensure zero network socket connections occur across all tests."""
+    """Block external network sockets while allowing the loopback sockets asyncio uses internally."""
     socket_calls = []
+    real_connect = socket.socket.connect
 
-    def fail_connect(self, *args, **kwargs):
-        socket_calls.append(args)
-        raise RuntimeError(f"Network socket connection forbidden in offline tests: {args}")
+    def guarded_connect(self, address, *args, **kwargs):
+        if isinstance(address, tuple) and address[0] in ("127.0.0.1", "::1", "localhost"):
+            return real_connect(self, address, *args, **kwargs)
+        socket_calls.append(address)
+        raise RuntimeError(f"Network socket connection forbidden in offline tests: {address}")
 
-    monkeypatch.setattr(socket.socket, "connect", fail_connect)
+    monkeypatch.setattr(socket.socket, "connect", guarded_connect)
     yield socket_calls
     assert len(socket_calls) == 0, f"Attempted network socket calls: {socket_calls}"
 
@@ -52,28 +58,23 @@ def block_sockets(monkeypatch):
 @pytest.fixture
 def isolated_modules(monkeypatch):
     """Bounded isolation for target modules (handler, guardrail, prompts) and dependencies."""
-    monkeypatch.setenv("USE_OPIK", "false")
-    monkeypatch.delenv("OPIK_API_KEY", raising=False)
-    monkeypatch.delenv("OPIK_PROJECT_NAME", raising=False)
+    monkeypatch.setenv("CHATBOT_FILE_TRACE_ENABLED", "false")
 
     # Stub broken pre-existing import boundaries
     mock_tools = types.ModuleType("src.tools")
+    mock_tools.query_metrics = lambda *a, **k: None
     mock_tools.run_query = lambda *a, **k: None
     mock_tools.get_table_names = lambda *a, **k: []
     mock_tools.get_table_detail = lambda *a, **k: ""
     mock_tools.load_skills = lambda *a, **k: None
+    mock_tools.get_grading_status_summary = lambda *a, **k: None
+    mock_tools.get_matching_status_summary = lambda *a, **k: None
+    mock_tools.get_failed_matching_jobs = lambda *a, **k: None
+    mock_tools.get_file_status = lambda *a, **k: None
+    mock_tools.get_latest_grading_jobs = lambda *a, **k: None
+    mock_tools.get_batch_status_summary = lambda *a, **k: None
+    mock_tools.get_anomaly_summary = lambda *a, **k: None
     monkeypatch.setitem(sys.modules, "src.tools", mock_tools)
-
-    # Mock conv_db calls for pure model configuration unit tests
-    import src.databases as real_db
-    mock_conv_db = types.SimpleNamespace(
-        conversation_exists=lambda conversation_id: False,
-        get_messages=lambda conversation_id: [],
-        insert_conversation=lambda conversation_id, title, user_id: None,
-        update_conversation_timestamp=lambda conversation_id: None,
-        insert_message=lambda conversation_id, content, role: None,
-    )
-    monkeypatch.setattr(real_db, "conv_db", mock_conv_db)
 
     # Bounded reload of only target modules and reexport package
     target_names = [
@@ -90,10 +91,8 @@ def isolated_modules(monkeypatch):
     import src.middlewares as middlewares_mod
     import src.handler as handler_mod
 
-    # Clear Opik again because handler.py invokes load_dotenv() at import time
-    monkeypatch.delenv("OPIK_API_KEY", raising=False)
-    monkeypatch.setenv("USE_OPIK", "false")
-    monkeypatch.delenv("OPIK_PROJECT_NAME", raising=False)
+    # Keep local trace output disabled after handler reload.
+    monkeypatch.setenv("CHATBOT_FILE_TRACE_ENABLED", "false")
 
     # Assert clean reexport without stale cached classes
     assert handler_mod.PromptInjectionGuardrail is guardrail_mod.PromptInjectionGuardrail
@@ -104,7 +103,6 @@ def isolated_modules(monkeypatch):
         "guardrail": guardrail_mod,
         "middlewares": middlewares_mod,
         "handler": handler_mod,
-        "mock_conv_db": mock_conv_db,
     }
 
 
@@ -128,10 +126,7 @@ def test_chatopenai_configuration_and_spy_wiring(isolated_modules, monkeypatch):
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-    h_def = handler_mod.ChatbotHandler()
-    assert h_def.model_name == "gemma4:31b-cloud"
-    assert h_def.base_url is None
-    assert h_def.api_key == "ollama"
+    handler_mod.ChatbotHandler(semantic_cache=MagicMock())
 
     # All 3 sites (main model, guardrail, title generator) received same default kwargs
     assert len(created_spies) == 3
@@ -141,12 +136,13 @@ def test_chatopenai_configuration_and_spy_wiring(isolated_modules, monkeypatch):
         assert s.spy_kwargs["api_key"] == "ollama"
         assert s.spy_kwargs["temperature"] == 0
 
-    # 2. Explicit overrides
-    h_over = handler_mod.ChatbotHandler(
-        model_name="custom-model",
-        base_url="http://custom:1234/v1",
-        api_key="custom-secret",
-    )
+    # 2. Explicit env overrides
+    monkeypatch.setenv("OPENAI_MODEL_NAME", "custom-model")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://custom:1234/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "custom-secret")
+
+    handler_mod.ChatbotHandler(semantic_cache=MagicMock())
+    assert len(created_spies) == 6
     for s in created_spies[-3:]:
         assert s.spy_kwargs["model"] == "custom-model"
         assert s.spy_kwargs["base_url"] == "http://custom:1234/v1"
@@ -154,11 +150,12 @@ def test_chatopenai_configuration_and_spy_wiring(isolated_modules, monkeypatch):
         assert s.spy_kwargs["temperature"] == 0
 
     # 3. Explicit blanks preserved without turning into None or falling back
-    h_blank = handler_mod.ChatbotHandler(
-        model_name="",
-        base_url="",
-        api_key="",
-    )
+    monkeypatch.setenv("OPENAI_MODEL_NAME", "")
+    monkeypatch.setenv("OPENAI_BASE_URL", "")
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+
+    handler_mod.ChatbotHandler(semantic_cache=MagicMock())
+    assert len(created_spies) == 9
     for s in created_spies[-3:]:
         assert s.spy_kwargs["model"] == ""
         assert s.spy_kwargs["base_url"] == ""
@@ -317,52 +314,81 @@ def test_prompt_format_instructions_and_input_variables(isolated_modules):
 
 
 def test_stream_title_string_contract(isolated_modules, monkeypatch):
-    """Verify that stream() generates a string title persisted to DB and formatted into SSE as string."""
+    """Verify that stream() persists a string title and serializes it in a TITLE event."""
     handler_mod = isolated_modules["handler"]
 
     def title_responder(x):
         return AIMessage(content='{"title": "Analisis Mutu Data Fav"}')
 
     monkeypatch.setattr(handler_mod, "ChatOpenAI", lambda **kwargs: SpyChatModel(responder=title_responder, **kwargs))
+    monkeypatch.setattr("src.middlewares.guardrail.ChatOpenAI", lambda **kwargs: SpyChatModel(**kwargs))
 
-    db_records = []
-    mock_db = types.SimpleNamespace(
-        conversation_exists=lambda conversation_id: False,
-        get_messages=lambda conversation_id: [],
-        insert_conversation=lambda conversation_id, title, user_id: db_records.append(("conv", conversation_id, title, user_id)),
-        update_conversation_timestamp=lambda conversation_id: None,
-        insert_message=lambda conversation_id, content, role: db_records.append(("msg", conversation_id, content, role)),
+    class FakeQuery:
+        def filter_by(self, **_kwargs):
+            return self
+
+        def first(self):
+            return None
+
+    class FakeSession:
+        records = []
+
+        def query(self, _model):
+            return FakeQuery()
+
+        def get(self, _model, _id):
+            return None
+
+        def flush(self):
+            pass
+
+        def add(self, obj):
+            self.records.append(obj)
+
+        def commit(self):
+            pass
+
+        def close(self):
+            pass
+
+    FakeSession.records = []
+    monkeypatch.setattr(handler_mod, "SessionLocal", FakeSession)
+
+    class FakeAgent:
+        async def astream(self, *_args, **_kwargs):
+            yield AIMessageChunk(content="Analisis selesai."), {"langgraph_node": "model"}
+
+        async def aupdate_state(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(handler_mod, "create_agent", lambda **_kwargs: FakeAgent())
+
+    handler = handler_mod.ChatbotHandler(
+        semantic_cache=MagicMock(),
+        checkpointer=types.SimpleNamespace(),
     )
-    monkeypatch.setattr(handler_mod, "conv_db", mock_db)
-
-    mock_checkpointer = types.SimpleNamespace(
-        get=lambda *a, **k: None,
-        aget=lambda *a, **k: asyncio.sleep(0, result=None),
-    )
-    handler = handler_mod.ChatbotHandler(checkpointer=mock_checkpointer, async_checkpointer=mock_checkpointer)
-
-    async def fake_astream(*args, **kwargs):
-        yield AIMessageChunk(content="Analisis selesai."), {"langgraph_node": "model"}
-
-    mock_agent = types.SimpleNamespace(astream=fake_astream)
-    handler._get_agent = lambda enable_pii=True: mock_agent
 
     async def run_stream():
         events = []
-        async for event in handler.stream(user_id="user-123", conversation_id="thread-abc", question="Cek status Fav"):
+        async for event in handler.stream(
+            user_id="user-123",
+            conversation_id="thread-abc",
+            question="Cek status Fav",
+        ):
             events.append(event)
         return events
 
     events = asyncio.run(run_stream())
 
-    # DB persistence check: title must be str
-    conv_inserts = [r for r in db_records if r[0] == "conv"]
-    assert len(conv_inserts) == 1
-    assert conv_inserts[0][2] == "Analisis Mutu Data Fav"
-    assert isinstance(conv_inserts[0][2], str)
+    conversations = [obj for obj in FakeSession.records if isinstance(obj, handler_mod.Conversation)]
+    messages = [obj for obj in FakeSession.records if isinstance(obj, handler_mod.Message)]
 
-    # SSE serialization check: TITLE event content must be str
-    title_events = [e for e in events if '"step": "TITLE"' in e]
+    assert len(conversations) == 1
+    assert conversations[0].title == "Analisis Mutu Data Fav"
+    assert isinstance(conversations[0].title, str)
+    assert [message.role for message in messages] == ["user", "ai"]
+
+    title_events = [event for event in events if '"step": "TITLE"' in event]
     assert len(title_events) == 1
     data = json.loads(title_events[0].replace("data: ", "").strip())
     assert data["step"] == "TITLE"

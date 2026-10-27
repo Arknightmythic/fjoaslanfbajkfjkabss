@@ -1,47 +1,37 @@
 # DATA QUALITY GRADING SKILL
 
 ## Purpose
-This skill defines classification rules and completeness thresholds for data quality grades (Grade A to Grade F) applied to uploaded datasets.
+This skill defines the active data-quality grade model used in `syncrono_starrocks_v002`.
 
 ## 1. Six Core Identity Elements
-Identity completeness is evaluated across six individual data fields:
-1. National ID Number (NIK) - 16 valid digits
+1. National ID Number (NIK)
 2. Full Name (Nama Lengkap)
 3. Place of Birth (Tempat Lahir)
 4. Date of Birth (Tanggal Lahir)
 5. Gender (Jenis Kelamin)
 6. Mother's Name (Nama Ibu Kandung)
 
-## 2. Quality Grade Classification Rules
+## 2. Grade Bands
+Read `syncrono_service_grade_bands` for the authoritative values:
+- A: score 90–100, “Sangat Baik”, can proceed.
+- B: score 70–89, “Baik”, can proceed.
+- C: score 50–69, “Cukup”, can proceed.
+- D: score 30–49, “Kurang”, can proceed.
+- E: score 10–29, “Sangat Kurang”, can proceed.
+- F: score 0–9, “Kritis”, cannot proceed.
 
-### Grade A (Sangat Lengkap / Very Complete)
-- All 6 core data elements fully filled and strictly validated.
-- NIK must be exactly 16 valid digits.
-- Full Name, Place of Birth, Date of Birth, Gender, and Mother's Name 100% complete.
-- High consistency and zero validation errors across all fields.
+The score and letter for a completed job are stored in `syncrono_service_grading_results.grade_letter` and `quality_score`; use `phase = grading_phase` for the final result.
 
-### Grade B (Hampir Lengkap / Almost Complete)
-- Full Name: 100% complete.
-- NIK: At least 70% complete/correct.
-- Place of Birth, Date of Birth, and Gender: Each at least 70% complete.
-- Mother's Name: At least 60% complete.
-- Minor gaps or minor field inconsistencies present.
+## 3. Completeness Criteria
+Read `syncrono_service_grade_criteria` for authoritative thresholds. Current configuration:
+- **Grade A (`grade_id=1`)**: NIK required; all six elements at 100%; trusted NIK required.
+- **Grade B (`grade_id=2`)**: NIK required; Full Name 100%; Place of Birth, Date of Birth, and Gender >= 70%; Mother's Name >= 60%; trusted NIK >= 70%.
+- **Grade C (`grade_id=3`)**: NIK forbidden; Full Name, Place of Birth, Date of Birth, Gender, and Mother's Name at 100%.
+- **Grade D (`grade_id=4`)**: NIK forbidden; Full Name 100%; Place of Birth, Date of Birth, and Gender >= 70%; Mother's Name >= 60%.
+- Grades E and F are assigned by the score bands; no separate completeness row is defined in the current criteria table.
 
-### Grade C (Cukup Lengkap / Fairly Complete)
-- Five core identity fields present (Full Name, Place of Birth, Date of Birth, Gender, Mother's Name).
-- NIK is not required for Grade C classification.
-- Core identity fields are filled, even if not fully verified against master registry.
-
-### Grade D (Kurang Lengkap dengan Persyaratan Minimum / Less Complete with Minimum Requirement)
-- Five core identity elements present with minimum completeness threshold:
-  - Full Name: 100% complete.
-  - Place of Birth, Date of Birth, Gender: Each at least 70% complete.
-  - Mother's Name: At least 60% complete.
-- **Mengapa ada data Grade D?**: Terjadi ketika dataset memiliki kelengkapan minimum pada atribut biodata dasar (Nama, Tempat Lahir, Tanggal Lahir, Jenis Kelamin, Nama Ibu), **tetapi field NIK kosong, formatnya salah (< 16 digit), atau tidak memenuhi ambang batas validasi NIK**. Data ini tetap dapat diproses pemadanan berbasis nama dan tanggal lahir, namun memiliki tingkat kepastian lebih rendah sehingga memerlukan peninjauan lebih lanjut.
-
-### Grade E (Sangat Tidak Lengkap / Very Incomplete)
-- Minimum of 3 data elements available in flexible combinations (e.g. Nama + Tanggal Lahir + Jenis Kelamin).
-- Highly variable completeness, non-standard formats.
-
-### Grade F (Custom / User-Defined Mapping)
-- Fallback grade assigned when column headers are non-standard and cannot be automatically parsed into the 6 core identity fields. Requires manual column mapping by the user.
+## 4. Interpretation
+- Grade D means the minimum biodata completeness is present, but NIK is absent/invalid, so matching certainty is lower.
+- Grade F means a critical score/quality level and `can_proceed = 0`.
+- Always distinguish “NIK kosong/tidak valid” from “NIK ada tetapi tidak cocok” when explaining results.
+- Use `syncrono_service_grading_results.summary` for completeness/anomaly counts, and `syncrono_kl_records.is_anomaly` / `anomaly_type` for row-level evidence.

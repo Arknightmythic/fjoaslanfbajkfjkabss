@@ -1,5 +1,7 @@
 # Synchrono AI Chatbot: Production Frontend Integration Guide
 
+> **STATUS: OUTDATED.** Untuk kontrak API aktual dan contoh React streaming, gunakan [`REACT_STREAMING_INTEGRATION.md`](./REACT_STREAMING_INTEGRATION.md). Dokumen ini masih memakai endpoint/field lama (`/api/v1/chat`, `query`, `conversation_id`) dan tidak sesuai implementasi saat ini.
+
 > **Target Audience:** Frontend Engineers and AI Coding Agents  
 > **Protocol:** Server-Sent Events (SSE) over HTTP POST + REST API  
 > **Base URL (Local/Dev):** `http://localhost:8000`  

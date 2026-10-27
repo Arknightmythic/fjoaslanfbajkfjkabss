@@ -153,9 +153,17 @@ If Docker is unavailable on the machine, the system can operate completely offli
 | `POSTGRES_PORT` | `5433` | Host-side port mapping for PostgreSQL |
 | `POSTGRES_URI` | `postgresql://synchrono:synchrono123@localhost:5433/synchrono_chatbot` | Connection URI for host-based runs |
 | `ANALYTICS_DB_URI` | *(Optional)* | Connection URI to production matching database |
-| `USE_OPIK` | `false` | Enable Opik Cloud observability tracing |
-| `OPIK_API_KEY` | *(Optional)* | Opik Cloud API key |
-| `OPIK_PROJECT_NAME` | `synchrono-chatbot` | Project namespace in Opik Cloud |
+| `CHATBOT_FILE_TRACE_ENABLED` | `true` | Enable local JSONL trace logging |
+| `CHATBOT_TRACE_FILE` | `/app/data/logs/chatbot-traces.jsonl` | Persistent trace file path in the mounted data directory |
+| `CHATBOT_TRACE_MAX_BYTES` | `10485760` | Maximum bytes per trace log before rotation |
+| `CHATBOT_TRACE_BACKUP_COUNT` | `5` | Number of rotated trace log files to retain |
+| `CHATBOT_TRACE_INCLUDE_CONTENT` | `true` | Include question/answer, LLM and tool payloads (NIK masked) |
+| `CHATBOT_TRACE_WRITE_JSON` | `true` | Write one nested JSON trace per completed chat request |
+| `CHATBOT_TRACE_JSON_DIR` | `/app/data/logs/traces` | Directory for per-trace JSON files |
+| `KNOWLEDGE_INGEST_PREFIX` | `faq-inbox/` | SeaweedFS prefix allowed for FAQ ingestion |
+| `KNOWLEDGE_DOCUMENT_INGEST_PREFIX` | `document-inbox/` | SeaweedFS prefix allowed for general document ingestion |
+| `PGVECTOR_COLLECTION_NAME` | `synchrono_faq_docs` | PGVector collection holding FAQ chunks |
+| `PGVECTOR_DOCUMENT_COLLECTION_NAME` | `synchrono_documents` | PGVector collection holding general document chunks |
 
 ---
 
@@ -189,7 +197,7 @@ Execute the automated test suite across all routers and middleware:
 ```bash
 uv run pytest -v
 ```
-* Default `testpaths = ["src/tests"]` and `addopts = "-m 'not eval'"` run offline/unit tests with isolated SQLite conversation storage and in-memory mock analytics. Opik telemetry is disabled during tests.
+* Default `testpaths = ["src/tests"]` and `addopts = "-m 'not eval'"` run offline/unit tests with isolated SQLite conversation storage and in-memory mock analytics. Set `CHATBOT_FILE_TRACE_ENABLED=false` to disable local JSONL tracing during tests.
 
 ### 4. Trajectory-Level Live Evaluation Harness
 Run the 14-scenario trajectory evaluation harness against a live LLM:
@@ -198,7 +206,7 @@ uv run pytest -m eval -v
 ```
 *(Optional: `--junitxml=pytest-evals.xml` to export standard test results)*
 * Evaluates intermediate tool calling, SQL generation, factuality, PII safety, and contextual recommendations across all 14 scenarios.
-* Executes real model calls and consumes API quota. Opik is disabled in tests.
+* Executes real model calls and consumes API quota. Trace metadata is written locally when enabled.
 
 ---
 

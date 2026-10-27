@@ -13,10 +13,10 @@ def load_skills(skill_names: List[str]) -> str:
     Args:
         skill_names (list[str]): List of skill domain identifiers to load.
             Available options:
-            - 'database_schema_context': Schema rules, mandatory LIMIT, performance constraints.
+            - 'database_schema_context': Active v002 schema, join rules, JSON syntax, mandatory LIMIT.
             - 'data_quality_grading': Criteria for Grade A through Grade F, 6 core identity fields.
-            - 'sync_and_link_tracker': Batch synchronization status & verbatim preview/investigate link rules.
-            - 'mismatch_reasoning': Protocols for investigating records in MANUAL_REVIEW or AUTO_UNMATCH.
+            - 'sync_and_link_tracker': Grading/matching job status and link-availability rules.
+            - 'mismatch_reasoning': Protocols for investigating AUTO and UNMATCH records.
 
     Returns:
         str: The combined full-text guidelines for the requested domain skills.

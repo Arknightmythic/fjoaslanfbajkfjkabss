@@ -10,7 +10,12 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 import pytest
+from sqlalchemy import create_engine
 from sqlalchemy.engine.url import make_url
+from sqlalchemy.pool import StaticPool
+
+from src.databases.connectors.mysql import MySQLConnector
+from src.tests.demo_analytics import seed_demo_analytics
 
 from src.tests.judges import (
     judge_language_compliance,
@@ -288,11 +293,11 @@ def test_independent_followup_bootstrap_calls_reusable_runner():
     mock_handler = MagicMock()
     call_log = []
 
-    def fake_ask_with_trajectory(thread_id, question, user_id):
+    def fake_invoke(thread_id, question, user_id):
         call_log.append({"thread_id": thread_id, "question": question})
         return {"answer": "Hasil peninjauan Budi Santoso mismatch 98%", "tool_calls": []}
 
-    mock_handler.invoke_with_trajectory.side_effect = fake_ask_with_trajectory
+    mock_handler.invoke.side_effect = fake_invoke
 
     thread_id = "eval-TC-14-mock-thread"
     res = run_eval_trajectory_with_bootstrap(
@@ -333,15 +338,30 @@ def test_followup_unknown_prerequisite_fails():
 # 4. OFFLINE DEMO GROUND TRUTH SQL EXECUTION
 # ────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("test_case", CASES_WITH_GT_QUERY, ids=[tc["id"] for tc in CASES_WITH_GT_QUERY])
-def test_all_ground_truth_queries_execute_on_demo_db(test_case):
-    """Verify all ground truth queries execute successfully against isolated demo DB without errors."""
-    from src.databases.query_engine import query_engine
+@pytest.fixture(scope="module")
+def demo_connector():
+    """Current MySQLConnector backed by the isolated SQLite analytics fixture."""
+    connector = MySQLConnector.__new__(MySQLConnector)
+    connector._db = "demo"
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    seed_demo_analytics(engine)
+    connector._engine = engine
+    yield connector
+    engine.dispose()
 
+
+@pytest.mark.parametrize("test_case", CASES_WITH_GT_QUERY, ids=[tc["id"] for tc in CASES_WITH_GT_QUERY])
+def test_all_ground_truth_queries_execute_on_demo_db(demo_connector, test_case):
+    """Verify all ground truth queries execute successfully against the isolated demo DB."""
     sql = test_case["ground_truth_query"]
-    result = query_engine.execute_query(sql)
-    result_str = str(result)
-    assert not result_str.startswith("ERROR:"), f"Ground truth query failed for {test_case['id']}: {result_str}"
+    result_str = str(demo_connector.execute_query(sql))
+    assert not result_str.startswith(("[WARNING]", "[QUERY ERROR]", "[ERROR]")), (
+        f"Ground truth query failed for {test_case['id']}: {result_str}"
+    )
     assert len(result_str.strip()) > 0, f"Empty ground truth result for {test_case['id']}"
 
 
@@ -398,28 +418,27 @@ def test_sse_parser_empty_content_fails():
 # ────────────────────────────────────────────────────
 
 def test_canonical_model_env_precedence(monkeypatch):
-    """Verify that canonical env OPENAI_MODEL_NAME is used."""
+    """Verify that canonical env OPENAI_MODEL_NAME is wired into ChatOpenAI."""
     monkeypatch.setenv("OPENAI_MODEL_NAME", "custom-canonical-model")
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
     with patch("src.handler.ChatOpenAI") as mock_chat_openai:
         mock_chat_openai.return_value = MagicMock()
         from src.handler import ChatbotHandler
-        handler = ChatbotHandler()
-        assert handler.model_name == "custom-canonical-model"
+
+        ChatbotHandler(semantic_cache=MagicMock())
         assert mock_chat_openai.call_args.kwargs["model"] == "custom-canonical-model"
 
 
-def test_database_config_env_only(monkeypatch):
-    """Verify database engine config honors env URI without opening external connection."""
-    from src.databases.postgres import PostgresConversationDB
+def test_database_config_env_only():
+    """Verify internal and analytics database configuration has no demo fallback."""
+    from src.databases.connectors.factory import get_active_connector
+    from src.databases.internal.config import INTERNAL_DB_URL, engine
 
-    sqlite_test_uri = "sqlite:///:memory:"
-    monkeypatch.setenv("POSTGRES_URI", sqlite_test_uri)
-
-    db = PostgresConversationDB(uri=sqlite_test_uri)
-    assert "sqlite" in str(db.engine.url)
-    db.engine.dispose()
+    assert INTERNAL_DB_URL.startswith("postgresql+psycopg://")
+    assert engine.dialect.name == "postgresql"
+    assert engine.dialect.driver == "psycopg"
+    assert get_active_connector().dialect == "mysql"
 
 
 def test_loguru_no_raw_db_password_leak():
@@ -450,24 +469,18 @@ def test_loguru_no_raw_db_password_leak():
 
 
 def test_offline_demo_fallback_disabled_raises():
-    """Verify that disabled offline fallback raises instead of masking errors."""
+    """Verify agent failures propagate instead of being masked by an offline answer."""
     from src.handler import ChatbotHandler
 
-    handler = ChatbotHandler.__new__(ChatbotHandler)
-    handler._middleware = []
-    handler._checkpointer = MagicMock()
-    handler._checkpointer.get.return_value = None
-    handler._callbacks = []
+    with patch("src.handler.ChatOpenAI") as mock_chat_openai:
+        mock_chat_openai.return_value = MagicMock()
+        handler = ChatbotHandler(semantic_cache=MagicMock(), checkpointer=object())
+    handler._trace_enabled = False
 
-    mock_agent = MagicMock()
-    mock_agent.invoke.side_effect = RuntimeError("OpenAI API unreachable")
-    handler._get_agent = MagicMock(return_value=mock_agent)
-    handler._update_conversation_record = MagicMock()
-
-    def _raise_offline(self, q):
-        raise RuntimeError(f"Offline fallback disabled in tests: {q}")
-
-    handler._generate_offline_demo_response = _raise_offline.__get__(handler, ChatbotHandler)
-
-    with pytest.raises(RuntimeError, match="Offline fallback disabled in tests"):
-        handler.invoke(thread_id="test-fail", question="Berapa data?")
+    with patch("src.handler.create_agent", side_effect=RuntimeError("OpenAI API unreachable")):
+        with pytest.raises(RuntimeError, match="OpenAI API unreachable"):
+            handler.invoke(
+                thread_id="test-fail",
+                question="Tampilkan ringkasan batch terbaru",
+                user_id="user-1",
+            )

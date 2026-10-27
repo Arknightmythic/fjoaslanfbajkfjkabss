@@ -16,10 +16,18 @@ class SemanticCache:
         embedding=None,
         index_name: str = "idx:query_cache",
         key_prefix: str = "query_cache:",
-        ttl: int = 3600,
+        ttl: int = 43200,
         max_distance: float = 0.10,
         min_confidence: float = 0.90,
+        scope: str = "faq",
     ):
+        self.scope = (scope or "faq").strip().lower()
+        if self.scope not in {"faq", "document"}:
+            raise ValueError(f"Unsupported semantic cache scope: {scope}")
+        if self.scope == "document":
+            index_name = os.getenv("SEMANTIC_CACHE_DOCUMENT_INDEX", "idx:query_cache_document")
+            key_prefix = os.getenv("SEMANTIC_CACHE_DOCUMENT_KEY_PREFIX", "query_cache_document:")
+
         host = os.getenv("VALKEY_HOST") or os.getenv("REDIS_HOST") or "127.0.0.1"
         port_env = os.getenv("VALKEY_PORT") or os.getenv("REDIS_PORT") or "6379"
         db_env = os.getenv("VALKEY_DB") or os.getenv("REDIS_DB") or "0"
@@ -32,7 +40,7 @@ class SemanticCache:
 
         self._index_name = index_name
         self._key_prefix = key_prefix
-        self._ttl = ttl
+        self._ttl = int(os.getenv("SEMANTIC_CACHE_TTL_SECONDS", str(ttl)))
         self._embedding = embedding
         self._ready = False
         self._unavailable = False
@@ -159,22 +167,14 @@ class SemanticCache:
             logger.error(f"[VALKEY] Failed to store response in semantic cache: {e}")
 
     def clear(self) -> int:
-        """Clear all cached queries from the semantic cache."""
+        """Delete all cached query keys for this cache scope."""
         if not self._client:
             return 0
 
         cleared_count = 0
         try:
-            # 1. Drop search index with DD (Delete Documents)
-            try:
-                self._client.execute_command("FT.DROPINDEX", self._index_name, "DD")
-                self._ready = False
-                cleared_count += 1
-                logger.info(f"[VALKEY] Dropped search index '{self._index_name}' and deleted documents.")
-            except ResponseError:
-                pass
-
-            # 2. Delete any remaining keys matching key_prefix
+            # Keep the index so other processes with a cached FT.INFO result can
+            # still search it; deleting the keys is enough to invalidate answers.
             cursor = 0
             while True:
                 cursor, keys = self._client.scan(cursor=cursor, match=f"{self._key_prefix}*", count=200)

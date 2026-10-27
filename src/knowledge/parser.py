@@ -1,6 +1,35 @@
 import re
 
 
+def chunk_document_text(text: str, max_chars: int = 1200, overlap: int = 150) -> list[str]:
+    """Split general documents into bounded, overlapping chunks for retrieval."""
+    text = text.strip()
+    if not text:
+        return []
+    if len(text) <= max_chars:
+        return [text]
+
+    chunks: list[str] = []
+    start = 0
+    while start < len(text):
+        end = min(start + max_chars, len(text))
+        if end < len(text):
+            boundary = text.rfind("\n\n", start, end)
+            if boundary <= start:
+                boundary = text.rfind("\n", start, end)
+            if boundary <= start:
+                boundary = text.rfind(" ", start, end)
+            if boundary > start:
+                end = boundary
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end >= len(text):
+            break
+        start = max(end - overlap, start + 1)
+    return chunks
+
+
 def clean_markdown(content: str) -> list[str]:
     """
     Cleansing and chunking markdown content into indexed document pages.

@@ -3,7 +3,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 from langchain_core.documents import Document
 
-from src.knowledge.parser import clean_markdown
+from src.knowledge.parser import chunk_document_text, clean_markdown
 from src.knowledge.ingestor import Ingestor
 from src.knowledge.retriever import KnowledgeRetriever
 from src.semantic_cache import SemanticCache
@@ -27,6 +27,23 @@ Pembuatan KTP-el gratis tanpa dipungut biaya retribusi.
     assert "<answer>Syaratnya adalah membawa Kartu Keluarga (KK).</answer>" in pages[0]
     assert "<question>Berapa biaya pembuatan KTP-el?</question>" in pages[1]
     assert "<answer>Pembuatan KTP-el gratis tanpa dipungut biaya retribusi.</answer>" in pages[1]
+
+
+def test_chunk_document_text_splits_long_text_with_overlap():
+    text = ("A" * 700) + "\n\n" + ("B" * 700)
+
+    chunks = chunk_document_text(text, max_chars=1000, overlap=100)
+
+    assert len(chunks) == 2
+    assert chunks[0] == "A" * 700
+    assert chunks[1].startswith("A" * 100)
+    assert chunks[1].endswith("B" * 700)
+    assert all(len(chunk) <= 1000 for chunk in chunks)
+
+
+def test_chunk_document_text_keeps_short_text_whole():
+    assert chunk_document_text("Isi SOP singkat.") == ["Isi SOP singkat."]
+    assert chunk_document_text("   ") == []
 
 
 def test_ingestor_clears_cache_on_new_ingestion():
@@ -63,6 +80,83 @@ Jawaban Baru."""
 
     # Check that semantic cache clear() WAS CALLED
     mock_cache.clear.assert_called_once()
+
+
+def test_document_ingestion_does_not_clear_faq_cache():
+    mock_vector_store = MagicMock()
+    mock_cache = MagicMock(spec=SemanticCache)
+
+    ingestor = Ingestor(
+        vector_store=mock_vector_store,
+        embedding=MagicMock(),
+        semantic_cache=mock_cache,
+        connection=MagicMock(),
+    )
+
+    result = ingestor.ingest_text(
+        "Q: Apa isi SOP?\nJawaban: Ikuti langkah-langkahnya.",
+        doc_name="sop.md",
+        source_type="document",
+    )
+
+    assert result["status"] == "success"
+    assert result["cache_cleared"] is False
+    mock_cache.clear.assert_not_called()
+    added_docs = mock_vector_store.add_documents.call_args[0][0]
+    assert added_docs[0].metadata["source_type"] == "document"
+
+
+def test_versioned_ingest_scopes_hashes_by_source_type(tmp_path):
+    test_file = tmp_path / "shared.md"
+    test_file.write_text("Q: Pertanyaan?\nJawaban: Sama.", encoding="utf-8")
+    mock_vector_store = MagicMock()
+
+    ingestor = Ingestor(
+        vector_store=mock_vector_store,
+        embedding=MagicMock(),
+        semantic_cache=MagicMock(spec=SemanticCache),
+        connection=MagicMock(),
+    )
+
+    faq_result = ingestor.ingest_file(test_file, faq_version=1, source_type="faq")
+    document_result = ingestor.ingest_file(test_file, faq_version=1, source_type="document")
+
+    assert faq_result["status"] == "success"
+    assert faq_result["new_chunks"] == 1
+    assert document_result["status"] == "success"
+    assert document_result["new_chunks"] == 1
+    assert ingestor._processed_versioned_file_hashes[("faq", 1)]
+    assert ingestor._processed_versioned_file_hashes[("document", 1)]
+    assert ingestor._processed_versioned_chunk_hashes[("faq", 1)]
+    assert ingestor._processed_versioned_chunk_hashes[("document", 1)]
+
+
+def test_document_chunks_store_document_id_version_and_wib_timestamp(tmp_path):
+    test_file = tmp_path / "sop.md"
+    test_file.write_text("# SOP\n\nIkuti langkah-langkahnya.", encoding="utf-8")
+    mock_vector_store = MagicMock()
+    ingestor = Ingestor(
+        vector_store=mock_vector_store,
+        embedding=MagicMock(),
+        semantic_cache=MagicMock(spec=SemanticCache),
+        connection=MagicMock(),
+    )
+
+    result = ingestor.ingest_file(
+        test_file,
+        faq_version=7,
+        source_type="document",
+        document_id="doc-7",
+        document_version=7,
+        ingested_at_wib="2026-10-26T09:15:00+07:00",
+    )
+
+    assert result["status"] == "success"
+    metadata = mock_vector_store.add_documents.call_args[0][0][0].metadata
+    assert metadata["document_id"] == "doc-7"
+    assert metadata["document_version"] == 7
+    assert metadata["faq_version"] == 7
+    assert metadata["ingested_at_wib"] == "2026-10-26T09:15:00+07:00"
 
 
 def test_ingestor_does_not_clear_cache_when_duplicate_file():
@@ -116,6 +210,43 @@ def test_ingestor_file_ingestion(tmp_path):
     assert mock_cache.clear.called
 
 
+def test_pdf_text_extraction_preserves_page_boundaries(tmp_path):
+    pdf_file = tmp_path / "faq.pdf"
+    pdf_file.write_bytes(b"%PDF-fake")
+    reader = MagicMock()
+    reader.pages = [MagicMock(extract_text=lambda: "Q: Apa arti grade?\nJawaban: Grade mengukur kualitas."), MagicMock(extract_text=lambda: "Q: Apa arti status?\nJawaban: Status menunjukkan proses.")]
+
+    with patch("pypdf.PdfReader", return_value=reader):
+        ingestor = Ingestor(
+            vector_store=MagicMock(),
+            embedding=MagicMock(),
+            semantic_cache=MagicMock(spec=SemanticCache),
+            connection=MagicMock(),
+        )
+        extracted = ingestor._read_document_text(pdf_file)
+
+    assert "Grade mengukur kualitas." in extracted
+    assert "<!-- page break -->" in extracted
+    assert "Status menunjukkan proses." in extracted
+
+
+def test_scanned_pdf_without_extractable_text_fails_clearly(tmp_path):
+    pdf_file = tmp_path / "scanned.pdf"
+    pdf_file.write_bytes(b"%PDF-fake")
+    reader = MagicMock()
+    reader.pages = [MagicMock(extract_text=lambda: None)]
+
+    with patch("pypdf.PdfReader", return_value=reader):
+        ingestor = Ingestor(
+            vector_store=MagicMock(),
+            embedding=MagicMock(),
+            semantic_cache=MagicMock(spec=SemanticCache),
+            connection=MagicMock(),
+        )
+        with pytest.raises(ValueError, match="no extractable text"):
+            ingestor._read_document_text(pdf_file)
+
+
 def test_knowledge_retriever_search():
     mock_vector_store = MagicMock()
     sample_doc = Document(page_content="Hasil pencarian FAQ", metadata={"source": "faq"})
@@ -159,4 +290,3 @@ def test_api_ingest_endpoints():
         assert res.status_code == 200
         assert res.json()["new_chunks"] == 2
         assert res.json()["cache_cleared"] is True
-

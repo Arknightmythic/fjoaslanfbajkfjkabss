@@ -2,7 +2,7 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
 
-STATIC_DIR = Path("static")
+STATIC_DIR = Path(__file__).resolve().parents[3] / "static"
 
 router = APIRouter(tags=["ui"])
 

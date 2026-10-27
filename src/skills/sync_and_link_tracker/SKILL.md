@@ -1,28 +1,27 @@
 # FILE SYNCHRONIZATION & LINK ROUTING SKILL
 
 ## Purpose
-This skill defines business logic for determining file upload synchronization status and applying correct link publication rules based on file quality grade and database columns.
+This skill defines how to report file processing/synchronization status in the active `syncrono_starrocks_v002` database.
 
-## 1. Synchronization Status Evaluation Rules
-Check `uploaded_files.matching_task_status` and `uploaded_files.reasoning_task_status`:
+## 1. Status Sources
+Use the typed status tools first: `get_file_status`, `get_latest_grading_jobs`, `get_grading_status_summary`, `get_matching_status_summary`, `get_failed_matching_jobs`, and `get_batch_status_summary`. Use raw SQL only when no typed tool covers the question.
 
-- **In Synchronization (In Progress):**
-  - `matching_task_status` = 'PROCESSING' OR `reasoning_task_status` IN ('IDLE', 'PROCESSING')
-  - **Action:** Inform the user that the file is still undergoing synchronization/processing. **DO NOT** provide any download, preview, or investigation links.
+Use the latest grading job for the file:
+- `syncrono_service_grading_jobs.file_id`, `job_id`, `status`, `stage`, `grading_phase`, `created_at`, `finished_at`, `error`.
+- Async progress: `syncrono_service_batches.status`, `parts`, `total_rows`; per-part status in `syncrono_service_batch_parts`.
 
-- **Synchronization Completed:**
-  - BOTH `matching_task_status` AND `reasoning_task_status` are 'SUCCESS'.
-  - **Action:** Proceed to publish the corresponding action link.
+Use the matching job when one exists:
+- `syncrono_portal_matching_jobs.file_id`, `id`, `status`, `current_stage`, `total_incoming`, `auto_count`, `review_count`, `unmatch_count`, `last_error`, `failed_at`, `completed_at`.
+- Matching status values include `MATCHING`, `COMPLETED`, `FAILED`, and `CANCELLED`.
 
-## 2. Link Publication Rules (Post-Synchronization)
-When synchronization is complete, publish appropriate action links based on `uploaded_files.grade` and the actual non-null column:
+## 2. Interpretation
+- **Still processing:** grading job is not `COMPLETED`, or a matching job exists with status `MATCHING`.
+- **Completed:** grading job is `COMPLETED`; if a matching job exists, it is also `COMPLETED`.
+- **Failed/cancelled:** report the grading or matching status and the stored `error` or `last_error` value.
+- Do not claim synchronization succeeded merely because a file was uploaded; verify the job status first.
+- Do not claim a failure reason is unavailable when `last_error` is populated; report it verbatim or summarize it.
 
-- **Grade 'A':**
-  - Provide **Preview Link (`preview_url`)**.
-- **Non-Grade 'A' (Grade B, C, D, E, or F):**
-  - Provide **Investigate Link (`investigate_url`)**.
-
-## 3. Ground Truth: Use Stored Column Verbatim
-- **MANDATORY RULE:** ALWAYS `SELECT` the `uploaded_files.preview_url` or `uploaded_files.investigate_url` column and return that **exact string value verbatim** as the link.
-- **NEVER** construct, guess, shorten, or reconstruct the URL yourself (e.g. do not manually assemble `/batch-synchronization/investigate?file_id=...`). The stored column contains the exact token and parameter set expected by the frontend.
-- If the relevant URL column is `NULL`, inform the user that the link is not yet available.
+## 3. Links
+- The active schema does **not** contain `preview_url` or `investigate_url` columns.
+- Never construct, guess, or fabricate a URL.
+- If the user asks for a link, explain that the analytics database does not store the URL and provide the exact `file_id`/`job_id` so the user can open it in the portal.

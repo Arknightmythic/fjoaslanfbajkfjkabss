@@ -1,7 +1,7 @@
 # Synchrono AI Chatbot: Environment Configuration Guide (`.env`)
 
 > **Target Audience:** Developers, DevOps Engineers, and System Integrators  
-> **Purpose:** Detailed walkthrough for configuring LLM base URLs, API keys, database URIs, and Opik Cloud tracing.
+> **Purpose:** Detailed walkthrough for configuring LLM base URLs, API keys, database URIs, and local JSONL trace logging.
 
 ---
 
@@ -13,7 +13,7 @@ To configure your environment:
    cp .env.example .env
    ```
 2. Open `.env` in your editor.
-3. Configure your **AI Model credentials** and **Opik Cloud keys** as described in the sections below.
+3. Configure your **AI Model credentials** and local trace file settings as described in the sections below.
 
 ---
 
@@ -144,36 +144,61 @@ If `ANALYTICS_DB_URI` is left blank or the remote database cannot be reached, th
 
 ---
 
-## 5. Opik Cloud Observability Configuration
+## 5. Local JSONL Trace Logging
 
-[Opik Cloud](https://www.comet.com/opik) provides real-time LLM tracing, latency monitoring per tool hop, token consumption tracking, and guardrail audit logs.
+Chat and document-ingest lifecycle events are recorded locally as JSON Lines under the mounted `./data` directory. With `CHATBOT_TRACE_INCLUDE_CONTENT=true` (Opik-style), traces also capture the user question, final answer, LLM prompt/completion per call, and tool inputs/outputs. Payloads are truncated to `CHATBOT_TRACE_PAYLOAD_MAX_CHARS` and 16-digit NIK values are masked as `[NIK]`; credentials are never traced. Set `CHATBOT_TRACE_INCLUDE_CONTENT=false` to keep metadata only.
+
+When a chat request completes, `CHATBOT_TRACE_WRITE_JSON=true` also writes a nested, human-readable trace document to `CHATBOT_TRACE_JSON_DIR/<trace_id>.json`. It contains the trace `input`/`output`, metadata, a `spans` tree (chain → tool/LLM calls with inputs, outputs, durations, status), and non-span lifecycle events. This is the local equivalent of an Opik trace page.
 
 ```env
-USE_OPIK=true
-OPIK_API_KEY=7BDBf1dLYInrVeAdI8QOaRqI9
-OPIK_PROJECT_NAME=synchrono-chatbot
-OPIK_WORKSPACE=your_opik_workspace_or_username
+CHATBOT_FILE_TRACE_ENABLED=true
+CHATBOT_TRACE_FILE=/app/data/logs/chatbot-traces.jsonl
+CHATBOT_TRACE_MAX_BYTES=10485760
+CHATBOT_TRACE_BACKUP_COUNT=5
+CHATBOT_TRACE_INCLUDE_CONTENT=true
+CHATBOT_TRACE_PAYLOAD_MAX_CHARS=4000
+CHATBOT_TRACE_WRITE_JSON=true
+CHATBOT_TRACE_JSON_DIR=/app/data/logs/traces
 ```
 
-### Step-by-Step Opik Setup:
-1. **Create an Account:**
-   Sign up for a free Opik Cloud account at [https://www.comet.com/opik](https://www.comet.com/opik).
-2. **Retrieve API Key:**
-   Go to **Settings** > **API Keys** in the Opik dashboard, click **Create API Key**, and copy the token.
-3. **Find Your Workspace Name:**
-   Your workspace name is displayed at the top left of the Opik navigation bar (usually your username or team name).
-4. **Set Project Name:**
-   Assign a descriptive name like `synchrono-chatbot` or `syncrono_dev`. Traces and evaluations will be grouped under this project in the Opik dashboard.
-5. **How to Disable Opik:**
-   If you want to run purely offline or do not want telemetries sent over the network, simply set:
-   ```env
-   USE_OPIK=false
-   ```
-   The chatbot will bypass the tracer without throwing any errors.
+Set `CHATBOT_FILE_TRACE_ENABLED=false` to disable local trace logging. Files rotate at the configured size and retain the configured number of backups. Inspect recent events on the host with:
+
+```powershell
+Get-Content .\data\logs\chatbot-traces.jsonl -Tail 50
+```
 
 ---
 
-## 6. AI Database Schema Access Control (`ALLOWED_DB_SCHEMA`)
+## 6. Knowledge Ingestion Isolation (FAQ vs General Documents)
+
+FAQ and non-FAQ documents use independent version pointers, PGVector collections, and SeaweedFS prefixes. Updating one source type never prunes or deactivates chunks from the other.
+
+```env
+# FAQ ingestion (existing behavior)
+KNOWLEDGE_INGEST_PREFIX=faq-inbox/
+PGVECTOR_COLLECTION_NAME=synchrono_faq_docs
+
+# General document ingestion
+KNOWLEDGE_DOCUMENT_INGEST_PREFIX=document-inbox/
+PGVECTOR_DOCUMENT_COLLECTION_NAME=synchrono_documents
+
+# General document chat retrieval
+DOCUMENT_RETRIEVAL_CANDIDATES=20
+DOCUMENT_DIRECT_MIN_SCORE=0.0
+```
+
+Chat questions that explicitly ask for document content (for example `Jelaskan isi dokumen SOP terbaru`) are answered only from the active document snapshot. Retrieval uses the shared reranker (`RERANKER_MODEL`, falling back to `FAQ_RERANKER_MODEL`, default `BAAI/bge-reranker-base`). Non-live questions also try document retrieval before falling back to the analytics agent. Uploading a newer general document activates a new snapshot and prunes older document chunks, so only the latest active document snapshot is searchable.
+
+Upload through `POST /api/v1/knowledge/documents` with a multipart `file` field and an optional `source_type` form field:
+
+* `source_type=faq` (default) stores the file under `faq-inbox/` and versions it against the FAQ index state.
+* `source_type=document` stores the file under `document-inbox/` and versions it against the document index state.
+
+FAQ and document answers use separate semantic-cache indexes (`idx:query_cache` and `idx:query_cache_document`). Activating a new FAQ version clears only the FAQ cache; activating a new document version clears only the document cache. Document caching is enabled only while an active document version exists. Configure the document cache with `SEMANTIC_CACHE_DOCUMENT_INDEX` and `SEMANTIC_CACHE_DOCUMENT_KEY_PREFIX`; TTL and confidence thresholds are shared with the FAQ cache.
+
+---
+
+## 7. AI Database Schema Access Control (`ALLOWED_DB_SCHEMA`)
 
 This variable restricts which tables and columns the AI reasoning agent is allowed to introspect via the `get_schemas` tool.
 
@@ -187,7 +212,7 @@ ALLOWED_DB_SCHEMA=uploaded_files:*,manual_matches:*,institution:file_id,id_incom
 
 ---
 
-## 7. Verifying Your Configuration
+## 8. Verifying Your Configuration
 
 Once your `.env` file is saved, verify that the configuration is working correctly:
 
@@ -213,4 +238,4 @@ Expected JSON response:
 Open [http://localhost:8000/](http://localhost:8000/) in your web browser and submit a test prompt:
 > *"Tampilkan data Budi"*
 
-If Opik is enabled, open your Opik Cloud dashboard at [comet.com/opik](https://www.comet.com/opik) to view the real-time execution trace, latency breakdown, and token usage for the request.
+Inspect `data/logs/chatbot-traces.jsonl` for request trace IDs, routes, model/tool lifecycle events, durations, completion/error events, and (when content capture is enabled) question/answer plus tool inputs/outputs. Raw credentials and unmasked NIKs are never written.

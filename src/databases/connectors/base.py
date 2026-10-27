@@ -1,7 +1,7 @@
 import re
 import difflib
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Any, Mapping, Optional
 import sqlglot
 from sqlglot import exp, ErrorLevel
 from sqlglot.optimizer.scope import traverse_scope
@@ -35,6 +35,14 @@ class DatabaseConnector(ABC):
 
     @abstractmethod
     def execute_query(self, query: str) -> str:
+        ...
+
+    @abstractmethod
+    def fetch_all(
+        self,
+        query: str,
+        params: Optional[Mapping[str, Any]] = None,
+    ) -> list[dict[str, Any]]:
         ...
 
     def _traverse_physical_tables(self, stmt: exp.Expression) -> list[exp.Table]:

@@ -39,9 +39,9 @@ The **Synchrono AI Chatbot** is a decoupled, standalone analytical microservice.
 |                         |                                 |                                        |
 |                         v                                 v                                        v
 |    +-------------------------------+   +-------------------------------+   +-------------------+   |
-|    |      synchrono-chatbot-db     |   |    Analytics DB (Read-Only)   |   |    Opik Cloud     |   |
-|    |      (PostgreSQL :5433)       |   |  (PostgreSQL/StarRocks :5432) |   |   Observability   |   |
-|    |  - conversations & messages   |   |  - uploaded_files, matches    |   |  - Trace & Tokens |   |
+|    |      synchrono-chatbot-db     |   |    Analytics DB (Read-Only)   |   | Local JSONL Trace |   |
+|    |      (PostgreSQL :5433)       |   |  (PostgreSQL/StarRocks :5432) |   | Local JSONL Trace |   |
+|    |  - conversations & messages   |   |  - uploaded_files, matches    |   | - Trace & Latency |   |
 |    +-------------------------------+   +-------------------------------+   +-------------------+   |
 |                                                                                                    |
 +----------------------------------------------------------------------------------------------------+
@@ -145,18 +145,19 @@ ANALYTICS_DB_URI=postgresql://synchrono_readonly:readonly123@172.20.181.221:5432
 ANALYTICS_DB_URI=
 ```
 
-#### Section E: Opik Cloud Tracing & Observability
-Tracks latency, tool traces, token costs, and agent trajectories:
+#### Section E: Local JSONL Trace Logging
+Records request, model/tool, FAQ/cache, guardrail, and document-worker lifecycle events to the persistent local data volume. With content capture enabled (default), traces include the question, answer, LLM prompts/completions, and tool inputs/outputs; 16-digit NIK values are masked and payloads truncated. Each completed chat request also produces a nested JSON trace document:
 ```env
-USE_OPIK=true
-OPIK_API_KEY=your_opik_api_key_here
-OPIK_PROJECT_NAME=synchrono-chatbot
-OPIK_WORKSPACE=your_opik_workspace_name
+CHATBOT_FILE_TRACE_ENABLED=true
+CHATBOT_TRACE_FILE=/app/data/logs/chatbot-traces.jsonl
+CHATBOT_TRACE_MAX_BYTES=10485760
+CHATBOT_TRACE_BACKUP_COUNT=5
+CHATBOT_TRACE_INCLUDE_CONTENT=true
+CHATBOT_TRACE_PAYLOAD_MAX_CHARS=4000
+CHATBOT_TRACE_WRITE_JSON=true
+CHATBOT_TRACE_JSON_DIR=/app/data/logs/traces
 ```
-> **How to get Opik Key:**
-> 1. Sign up at [https://www.comet.com/opik](https://www.comet.com/opik).
-> 2. Open **Settings** -> **API Keys** -> click **Create API Key**.
-> 3. Set `USE_OPIK=false` if you wish to run completely offline without sending telemetry.
+Set `CHATBOT_FILE_TRACE_ENABLED=false` to disable local tracing, or `CHATBOT_TRACE_WRITE_JSON=false` to keep only JSONL. On the host, inspect events at `./data/logs/chatbot-traces.jsonl` and per-trace files at `./data/logs/traces/<trace_id>.json`.
 
 ---
 
@@ -223,14 +224,14 @@ Expected output:
 ```bash
 uv run pytest -v
 ```
-Default tests run isolated in-memory against a temporary SQLite conversation store and seeded mock analytics data, bypassing external network calls with Opik telemetry disabled.
+Default tests run isolated in-memory against a temporary SQLite conversation store and seeded mock analytics data. Set `CHATBOT_FILE_TRACE_ENABLED=false` to suppress local trace output during tests.
 
 ### 3. Run Trajectory Evaluation Harness (Live Model)
 ```bash
 uv run pytest -m eval -v
 ```
 *(Optional: `--junitxml=pytest-evals.xml`)*  
-Evaluates all 14 benchmark scenarios against the live LLM endpoint for SQL factuality, tool calling, PII masking, and contextual recommendations (uses live model inferences, costs API quota, Opik disabled during tests).
+Evaluates all 14 benchmark scenarios against the live LLM endpoint for SQL factuality, tool calling, PII masking, and contextual recommendations (uses live model inferences and consumes model API quota).
 
 ---
 
@@ -426,4 +427,4 @@ Ensure this checklist is completed before handing over the service:
 - [ ] **Database Connection:** PostgreSQL port 5433 verified, or remote read-only analytics DB verified.
 - [ ] **Proxy Buffering Disabled:** Nginx/ALB configured with `proxy_buffering off` for real-time SSE streaming.
 - [ ] **CORS Origins Updated:** `CORS_ORIGINS` includes the production frontend origin domain.
-- [ ] **Opik Observability Active:** Dashboard shows real-time traces and token usage.
+- [ ] **Local Trace Logging Active:** JSONL trace file is writable and receiving redacted operational metadata.

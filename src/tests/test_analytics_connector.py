@@ -1,287 +1,178 @@
-import os
+from unittest.mock import MagicMock, patch
+
 import pytest
-from loguru import logger
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import OperationalError
 
-from src.databases.connectors.sqlalchemy import (
-    AnalyticsConnector,
-    is_excluded_table,
-    normalize_db_uri,
-)
-from src.tests.demo_analytics import seed_demo_analytics
+from src.databases.connectors.base import FORBIDDEN_TABLES
+from src.databases.connectors.factory import connector, get_active_connector
+from src.databases.connectors.mysql import MySQLConnector
+from src.tools.database import get_table_detail, get_table_names, run_query
 
 
-def test_scheme_normalization() -> None:
-    """Test scheme normalization without live database connection."""
-    assert normalize_db_uri("postgresql://user:pass@localhost:5432/db") == "postgresql+psycopg://user:pass@localhost:5432/db"
-    assert normalize_db_uri("postgres://user:pass@localhost:5432/db") == "postgresql+psycopg://user:pass@localhost:5432/db"
-    assert normalize_db_uri("postgresql+psycopg://user:pass@localhost:5432/db") == "postgresql+psycopg://user:pass@localhost:5432/db"
-    assert normalize_db_uri("mysql://user:pass@localhost:3306/db") == "mysql+pymysql://user:pass@localhost:3306/db"
-    assert normalize_db_uri("mysql+pymysql://user:pass@localhost:3306/db") == "mysql+pymysql://user:pass@localhost:3306/db"
-    assert normalize_db_uri("sqlite:///:memory:") == "sqlite:///:memory:"
+@pytest.fixture
+def offline_connector(monkeypatch):
+    """MySQLConnector with a fake engine that fails if a connection is opened."""
+    original_forbidden = list(FORBIDDEN_TABLES)
+    instance = MySQLConnector.__new__(MySQLConnector)
+    instance._db = "mock_db"
+    fake_engine = MagicMock()
+    fake_engine.connect.side_effect = AssertionError("Unexpected database connection")
+    instance._engine = fake_engine
+    yield instance
+    FORBIDDEN_TABLES[:] = original_forbidden
 
 
-def test_connector_lazy_import_no_connection(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Raw instantiation does not connect or create an engine."""
-    monkeypatch.delenv("ANALYTICS_DB_URI", raising=False)
-    connector = AnalyticsConnector()
-    assert connector._engine is None
-    # close on uninitialized connector is a no-op
-    connector.close()
-    assert connector._engine is None
+def test_factory_exposes_a_single_mysql_connector():
+    assert get_active_connector() is connector
+    assert connector.dialect == "mysql"
+    assert connector._engine.url.drivername == "mysql+pymysql"
 
 
-def test_missing_and_empty_uri_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Connector fails clearly when ANALYTICS_DB_URI is missing or empty, with no demo fallback."""
-    monkeypatch.delenv("ANALYTICS_DB_URI", raising=False)
-    connector = AnalyticsConnector()
-    with pytest.raises(ValueError, match="ANALYTICS_DB_URI is not configured"):
-        _ = connector.engine
+def test_tools_delegate_to_the_active_connector(monkeypatch):
+    fake_connector = MagicMock()
+    fake_connector.dialect = "mysql"
+    fake_connector.execute_query.return_value = "id\n1"
+    fake_connector.get_table_schema.return_value = "### TABLE items DDL"
+    fake_connector.get_table_names.return_value = ["items"]
+    monkeypatch.setattr("src.tools.database.get_active_connector", lambda: fake_connector)
 
-    monkeypatch.setenv("ANALYTICS_DB_URI", "")
-    connector_empty = AnalyticsConnector()
-    with pytest.raises(ValueError, match="ANALYTICS_DB_URI is not configured"):
-        _ = connector_empty.engine
+    assert run_query.invoke({"query": "SELECT 1 AS id"}) == "id\n1"
+    assert get_table_detail.invoke({"table_name": "items"}) == "### TABLE items DDL"
+    assert get_table_names.invoke({}) == ["items"]
 
-    monkeypatch.setenv("ANALYTICS_DB_URI", "   ")
-    connector_spaces = AnalyticsConnector()
-    with pytest.raises(ValueError, match="ANALYTICS_DB_URI is not configured"):
-        _ = connector_spaces.engine
+    fake_connector.execute_query.assert_called_once_with("SELECT 1 AS id")
+    fake_connector.get_table_schema.assert_called_once_with("items")
 
 
-def test_invalid_uri_fails_safely() -> None:
-    """Invalid URI syntax raises ValueError without exposing credentials."""
-    connector = AnalyticsConnector(uri="invalid_scheme://user:super_secret_pw@host:1234/db")
-    with pytest.raises((ValueError, Exception)) as exc_info:
-        _ = connector.engine
-    assert "super_secret_pw" not in str(exc_info.value)
+def test_run_query_blocks_destructive_sql_before_connecting(offline_connector, monkeypatch):
+    monkeypatch.setattr("src.tools.database.get_active_connector", lambda: offline_connector)
+
+    result = run_query.invoke({"query": "DROP TABLE uploaded_files"})
+
+    assert result.startswith("[WARNING] Forbidden operation 'DROP'")
+    offline_connector._engine.connect.assert_not_called()
 
 
-def test_loguru_error_does_not_leak_password(caplog: pytest.LogCaptureFixture) -> None:
-    """Loguru logs must not leak URI credentials."""
-    secret_pass = "ultra_confidential_pass_123"
-    bad_uri = f"postgresql://user:{secret_pass}@127.0.0.1:59999/dummy_db"
+def test_query_execution_returns_tab_separated_output(offline_connector):
+    engine = create_engine("sqlite://")
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("CREATE TABLE items (id INT, item_name TEXT)"))
+            connection.execute(text("INSERT INTO items VALUES (1, 'keyboard'), (2, 'mouse')"))
 
-    connector = AnalyticsConnector(uri=bad_uri)
-    with pytest.raises(Exception):
-        connector.initialize()
+        offline_connector._engine = engine
+        result = offline_connector.execute_query("SELECT id, item_name FROM items ORDER BY id")
 
-    # Verify secret is not in pytest/loguru captured logs
-    for record in caplog.records:
-        assert secret_pass not in record.message
-
-
-def test_demo_analytics_seed_and_table_names() -> None:
-    """Explicit SQLite in-memory engine seeds and reflects demo tables."""
-    connector = AnalyticsConnector(uri="sqlite:///:memory:")
-    connector.initialize()
-    seed_demo_analytics(connector.engine)
-
-    names = connector.get_table_names()
-    expected_tables = {
-        "ref_grades",
-        "ref_sync_statuses",
-        "ref_process",
-        "ref_match_results",
-        "uploaded_files",
-        "manual_matches",
-        "institution",
-    }
-    assert expected_tables.issubset(set(names))
-    # Excluded and sqlite internal tables must not be returned
-    assert not any(t.startswith("sqlite_") for t in names)
-    assert not any(is_excluded_table(t) for t in names)
+        assert result == "id\titem_name\n1\tkeyboard\n2\tmouse"
+    finally:
+        engine.dispose()
 
 
-def test_table_schema_output() -> None:
-    """get_table_schema returns expected DDL and sample data."""
-    connector = AnalyticsConnector(uri="sqlite:///:memory:")
-    seed_demo_analytics(connector.engine)
+def test_fetch_all_returns_parameterized_rows(offline_connector):
+    engine = create_engine("sqlite://")
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("CREATE TABLE items (id INT, item_name TEXT)"))
+            connection.execute(text("INSERT INTO items VALUES (1, 'keyboard'), (2, 'mouse')"))
 
-    schema_doc = connector.get_table_schema("uploaded_files")
-    assert "### TABLE uploaded_files DDL" in schema_doc
-    assert "CREATE TABLE" in schema_doc
-    assert "### SAMPLE DATA" in schema_doc
-    assert "file_id" in schema_doc
-    assert "fav-001" in schema_doc
+        offline_connector._engine = engine
+        rows = offline_connector.fetch_all(
+            "SELECT id, item_name FROM items WHERE id = :id",
+            {"id": 1},
+        )
 
-
-def test_table_metadata_shape_matches_contract() -> None:
-    """get_table_metadata returns exact schema_context dict shape."""
-    connector = AnalyticsConnector(uri="sqlite:///:memory:")
-    seed_demo_analytics(connector.engine)
-
-    meta = connector.get_table_metadata("uploaded_files")
-    assert meta["table_name"] == "uploaded_files"
-    assert "table_description" in meta
-    assert isinstance(meta["columns"], list)
-    assert len(meta["columns"]) > 0
-
-    col_names = [c["name"] for c in meta["columns"]]
-    assert "file_id" in col_names
-    assert "parquet_path" in col_names
-
-    for col in meta["columns"]:
-        assert isinstance(col["name"], str)
-        assert isinstance(col["type"], str)
-        assert col["nullable"] in ("YES", "NO")
-        assert isinstance(col["description"], str)
-
-    assert isinstance(meta["constraints"], list)
-    for con in meta["constraints"]:
-        assert isinstance(con["name"], str)
-        assert isinstance(con["type"], str)
-        assert isinstance(con["definition"], str)
-        assert isinstance(con["business_context"], str)
+        assert rows == [{"id": 1, "item_name": "keyboard"}]
+    finally:
+        engine.dispose()
 
 
-def test_query_execution_tsv_and_empty() -> None:
-    """execute_query returns TSV string for data and standard string for empty."""
-    connector = AnalyticsConnector(uri="sqlite:///:memory:")
-    seed_demo_analytics(connector.engine)
+def test_fetch_all_retries_transient_error_once(offline_connector):
+    offline_connector._max_retries = 1
+    bad_connection = MagicMock()
+    bad_connection.__enter__.side_effect = OperationalError(
+        "SELECT 1",
+        {},
+        Exception(2003, "timed out"),
+    )
+    good_connection = MagicMock()
+    good_connection.__enter__.return_value = good_connection
+    result = MagicMock()
+    result.keys.return_value = ["id"]
+    result.fetchall.return_value = [(1,)]
+    good_connection.execute.return_value = result
 
-    result = connector.execute_query("SELECT grade_id, grade_code FROM ref_grades ORDER BY grade_id LIMIT 2;")
-    lines = result.splitlines()
-    assert lines[0] == "grade_id\tgrade_code"
-    assert lines[1] == "1\tA"
-    assert lines[2] == "2\tB"
+    engine = MagicMock()
+    engine.connect.side_effect = [bad_connection, good_connection]
+    offline_connector._engine = engine
 
-    empty_result = connector.execute_query("SELECT * FROM ref_grades WHERE grade_id = 999")
-    assert empty_result == "No records returned from query."
+    with patch("src.databases.connectors.mysql.time.sleep") as sleep:
+        rows = offline_connector.fetch_all("SELECT 1 AS id")
 
-    # Markdown wrapped query
-    wrapped = "```sql\nSELECT grade_code FROM ref_grades WHERE grade_id = 1;\n```"
-    res_wrapped = connector.execute_query(wrapped)
-    assert res_wrapped == "grade_code\nA"
-
-    # CTE query
-    cte_query = "WITH gr AS (SELECT grade_code FROM ref_grades WHERE grade_id = 3) SELECT * FROM gr;"
-    res_cte = connector.execute_query(cte_query)
-    assert res_cte == "grade_code\nC"
+    assert rows == [{"id": 1}]
+    assert engine.connect.call_count == 2
+    sleep.assert_called_once()
 
 
-def test_query_validation_rejections() -> None:
-    """Security validations reject multiple statements, comments, DML, DDL, and excluded tables."""
-    connector = AnalyticsConnector(uri="sqlite:///:memory:")
-    seed_demo_analytics(connector.engine)
+def test_fetch_all_does_not_retry_non_transient_error(offline_connector):
+    offline_connector._max_retries = 1
+    bad_connection = MagicMock()
+    bad_connection.__enter__.side_effect = OperationalError(
+        "SELECT nope",
+        {},
+        Exception(1064, "syntax error"),
+    )
+    engine = MagicMock()
+    engine.connect.return_value = bad_connection
+    offline_connector._engine = engine
 
-    # Concatenated statements
-    with pytest.raises(PermissionError, match="Multiple SQL statements"):
-        connector.execute_query("SELECT 1; DELETE FROM uploaded_files;")
+    with pytest.raises(OperationalError):
+        offline_connector.fetch_all("SELECT nope")
 
-    with pytest.raises(PermissionError, match="Multiple SQL statements"):
-        connector.execute_query("SELECT 1; SELECT 2;")
+    assert engine.connect.call_count == 1
 
-    with pytest.raises(PermissionError, match="Multiple SQL statements"):
-        connector.execute_query("SELECT 1;;")
 
-    # Comments
-    with pytest.raises(PermissionError, match="comments"):
-        connector.execute_query("SELECT * FROM ref_grades -- drop table")
+def test_fetch_all_blocks_destructive_sql_before_connecting(offline_connector):
+    with pytest.raises(ValueError, match="Forbidden operation"):
+        offline_connector.fetch_all("DELETE FROM items")
+    offline_connector._engine.connect.assert_not_called()
 
-    with pytest.raises(PermissionError, match="comments"):
-        connector.execute_query("SELECT * FROM ref_grades /* drop table */")
 
-    # DML and DDL mutations
-    with pytest.raises(PermissionError, match="READ-ONLY"):
-        connector.execute_query("INSERT INTO ref_grades VALUES (99, 'Z')")
-
-    with pytest.raises(PermissionError, match="READ-ONLY"):
-        connector.execute_query("UPDATE ref_grades SET grade_code = 'X'")
-
-    with pytest.raises(PermissionError, match="READ-ONLY"):
-        connector.execute_query("DELETE FROM ref_grades")
-
-    with pytest.raises(PermissionError, match="READ-ONLY"):
-        connector.execute_query("DROP TABLE ref_grades")
-
-    with pytest.raises(PermissionError, match="READ-ONLY"):
-        connector.execute_query("ALTER TABLE ref_grades ADD COLUMN extra TEXT")
-
-    with pytest.raises(PermissionError, match="READ-ONLY"):
-        connector.execute_query("CREATE TABLE hacked (id INT)")
-
-    with pytest.raises(PermissionError, match="READ-ONLY"):
-        connector.execute_query("TRUNCATE TABLE ref_grades")
-
-    with pytest.raises(PermissionError, match="READ-ONLY"):
-        connector.execute_query("SELECT * INTO new_tbl FROM ref_grades")
-
-    # Mutating CTE
-    with pytest.raises(PermissionError, match="READ-ONLY"):
-        connector.execute_query("WITH d AS (DELETE FROM ref_grades) SELECT * FROM d")
-
-    # Excluded tables check
-    excluded_queries = [
-        "SELECT * FROM conversations",
-        'SELECT * FROM "conversations"',
-        "SELECT * FROM public.conversations",
-        'SELECT * FROM "public"."conversations"',
-        "SELECT * FROM messages",
-        "SELECT * FROM checkpoint",
-        "SELECT * FROM checkpoints",
-        "SELECT * FROM checkpoint_blobs",
-        "SELECT * FROM public.checkpoint_writes",
-        "SELECT * FROM write",
-        "SELECT * FROM writes",
-        "SELECT * FROM access_event",
-        "SELECT * FROM audit_event",
-        "SELECT * FROM retention_action",
-        "SELECT * FROM retention_policy",
+def test_table_listing_filters_forbidden_tables(offline_connector):
+    FORBIDDEN_TABLES[:] = ["internal_audit"]
+    engine = MagicMock()
+    connection = engine.connect.return_value.__enter__.return_value
+    connection.execute.return_value.fetchall.return_value = [
+        ("uploaded_files",),
+        ("internal_audit",),
     ]
-    for q in excluded_queries:
-        with pytest.raises(PermissionError, match="internal tables"):
-            connector.execute_query(q)
+    offline_connector._engine = engine
+
+    assert offline_connector.get_table_names() == ["uploaded_files"]
 
 
-def test_query_validation_allows_non_excluded_prefixes() -> None:
-    """Non-excluded tables with similar substrings are not falsely blocked by regex."""
-    connector = AnalyticsConnector(uri="sqlite:///:memory:")
-    seed_demo_analytics(connector.engine)
+def test_table_schema_includes_ddl_and_sample_rows(offline_connector):
+    engine = MagicMock()
+    connection = engine.connect.return_value.__enter__.return_value
+    ddl_result = MagicMock()
+    ddl_result.fetchone.return_value = ("uploaded_files", "CREATE TABLE uploaded_files (file_id TEXT)")
+    sample_result = MagicMock()
+    sample_result.keys.return_value = ["file_id", "original_filename"]
+    sample_result.fetchall.return_value = [("fav-001", "peserta.parquet")]
+    connection.execute.side_effect = [ddl_result, sample_result]
+    offline_connector._engine = engine
 
-    # messages_archive is not an excluded table (fails with table not found RuntimeError, not PermissionError)
-    with pytest.raises(RuntimeError, match="no such table"):
-        connector.execute_query("SELECT * FROM messages_archive")
+    schema = offline_connector.get_table_schema("uploaded_files")
 
-
-def test_invalid_table_identifier_injection() -> None:
-    """Injection attempts in table_name parameters are rejected."""
-    connector = AnalyticsConnector(uri="sqlite:///:memory:")
-    seed_demo_analytics(connector.engine)
-
-    injection = "uploaded_files; DROP TABLE ref_grades;"
-    schema_res = connector.get_table_schema(injection)
-    assert "Invalid table name" in schema_res
-
-    with pytest.raises(ValueError, match="Invalid table name"):
-        connector.get_table_metadata(injection)
-
-    # Excluded table rejection
-    assert "Not allowed" in connector.get_table_schema("conversations")
-    assert "Not allowed" in connector.get_table_schema("checkpoint_blobs")
-
-    with pytest.raises(PermissionError):
-        connector.get_table_metadata("conversations")
-
-    with pytest.raises(PermissionError):
-        connector.get_table_metadata("checkpoint_blobs")
-
-    # Non-existent table
-    assert "Table does not exist" in connector.get_table_schema("non_existent_xyz")
-    with pytest.raises(ValueError, match="does not exist"):
-        connector.get_table_metadata("non_existent_xyz")
+    assert schema.startswith("### TABLE uploaded_files DDL")
+    assert "CREATE TABLE uploaded_files" in schema
+    assert "### SAMPLE DATA" in schema
+    assert "fav-001\tpeserta.parquet" in schema
 
 
-def test_engine_lifecycle_and_reinitialize() -> None:
-    """Lifecycle methods initialize and close properly manage the engine state."""
-    connector = AnalyticsConnector(uri="sqlite:///:memory:")
-    connector.initialize()
-    assert connector._engine is not None
+def test_forbidden_table_metadata_is_rejected_without_connecting(offline_connector):
+    FORBIDDEN_TABLES[:] = ["conversations"]
 
-    connector.close()
-    assert connector._engine is None
-
-    # Re-accessing .engine creates a new instance
-    new_eng = connector.engine
-    assert new_eng is not None
-    connector.close()
+    assert offline_connector.get_table_schema("conversations") == "Access to 'conversations' is forbidden."
+    assert offline_connector.get_table_columns("conversations") == []
+    offline_connector._engine.connect.assert_not_called()
