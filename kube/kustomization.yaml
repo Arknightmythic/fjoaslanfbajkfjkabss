@@ -1,0 +1,23 @@
+# Synchrono chatbot di Kubernetes: API (+ migrasi + pengarsip log), document worker, celery beat
+# (namespace syncrono).
+#
+#   kubectl apply -k kube/pendukung     # sekali: PostgreSQL pgvector + Valkey bundle
+#   kubectl apply -k kube               # chatbot
+#
+# Secret synchrono-chatbot-secret dibuat sendiri dari kube/secret.env (lihat kube/README.md).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: syncrono
+
+resources:
+  - chatbot.yaml
+
+configMapGenerator:
+  - name: synchrono-chatbot-config
+    envs:
+      - config.env
+
+images:
+  - name: synchrono-chatbot
+    newName: registry.digie-tekno.com/product/synchrono-chatbot
+    newTag: kube-mvp

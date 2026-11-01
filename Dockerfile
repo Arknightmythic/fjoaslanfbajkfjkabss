@@ -23,7 +23,8 @@ COPY static/ /app/static/
 COPY scripts/ /app/scripts/
 
 RUN mkdir -p /app/data && chmod -R 777 /app/data
-RUN groupadd -r synchrono && useradd -r -g synchrono -d /app -s /sbin/nologin synchrono && \
+# Fixed ids (999, what -r gave before) so Kubernetes runAsUser/fsGroup can name them.
+RUN groupadd -r -g 999 synchrono && useradd -r -u 999 -g synchrono -d /app -s /sbin/nologin synchrono && \
     chown -R synchrono:synchrono /app
 
 USER synchrono

@@ -37,6 +37,21 @@ def test_document_semantic_cache_uses_separate_index_and_key_prefix():
     assert document_cache._key_prefix == "query_cache_document:"
 
 
+def test_semantic_cache_passes_valkey_password(monkeypatch):
+    monkeypatch.setenv("VALKEY_PASSWORD", "rahasia")
+    with patch("src.semantic_cache.valkey.Valkey") as client:
+        SemanticCache(embedding=DummyEmbedding())
+    assert client.call_args.kwargs["password"] == "rahasia"
+
+
+def test_semantic_cache_without_password(monkeypatch):
+    monkeypatch.delenv("VALKEY_PASSWORD", raising=False)
+    monkeypatch.delenv("REDIS_PASSWORD", raising=False)
+    with patch("src.semantic_cache.valkey.Valkey") as client:
+        SemanticCache(embedding=DummyEmbedding())
+    assert client.call_args.kwargs["password"] is None
+
+
 def test_semantic_cache_rejects_unknown_scope():
     with pytest.raises(ValueError, match="Unsupported semantic cache scope"):
         SemanticCache(embedding=DummyEmbedding(), scope="agent")

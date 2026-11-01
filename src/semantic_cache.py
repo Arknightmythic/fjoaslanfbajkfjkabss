@@ -31,6 +31,7 @@ class SemanticCache:
         host = os.getenv("VALKEY_HOST") or os.getenv("REDIS_HOST") or "127.0.0.1"
         port_env = os.getenv("VALKEY_PORT") or os.getenv("REDIS_PORT") or "6379"
         db_env = os.getenv("VALKEY_DB") or os.getenv("REDIS_DB") or "0"
+        password = os.getenv("VALKEY_PASSWORD") or os.getenv("REDIS_PASSWORD") or None
         try:
             port = int(port_env)
             db = int(db_env)
@@ -62,6 +63,7 @@ class SemanticCache:
                 host=host,
                 port=port,
                 db=db,
+                password=password,
                 socket_connect_timeout=float(os.getenv("VALKEY_TIMEOUT", "1.0")),
                 socket_timeout=float(os.getenv("VALKEY_TIMEOUT", "2.0")),
                 decode_responses=False,

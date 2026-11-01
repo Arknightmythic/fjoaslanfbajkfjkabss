@@ -1,0 +1,11 @@
+# Layanan pendukung chatbot yang belum ada di cluster:
+# - PostgreSQL dengan pgvector (postgres namespace database tidak punya ekstensi vector)
+# - Valkey bundle dengan modul search (Valkey namespace valkey polos, tanpa persistensi, ber-eviction)
+#   kubectl apply -k kube/pendukung      (setelah Secret synchrono-chatbot-secret dibuat)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: syncrono
+
+resources:
+  - postgres.yaml
+  - valkey.yaml

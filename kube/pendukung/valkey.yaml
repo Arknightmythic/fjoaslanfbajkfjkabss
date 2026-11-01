@@ -1,0 +1,80 @@
+# Valkey bundle (modul search + json) untuk cache semantik (FT.CREATE/FT.SEARCH, DB 0) dan broker
+# Celery (DB 1). Entrypoint image bundle memuat modulnya walau argumen ditimpa. AOF di PVC;
+# volatile-lru hanya membuang kunci ber-TTL (entri cache), bukan antrean Celery.
+apiVersion: v1
+kind: Service
+metadata:
+  name: synchrono-chatbot-valkey
+  labels:
+    app.kubernetes.io/name: synchrono-chatbot
+    app.kubernetes.io/component: valkey
+spec:
+  selector:
+    app: synchrono-chatbot-valkey
+  ports:
+    - name: valkey
+      port: 6379
+      targetPort: valkey
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: synchrono-chatbot-valkey
+  labels:
+    app.kubernetes.io/name: synchrono-chatbot
+    app.kubernetes.io/component: valkey
+spec:
+  serviceName: synchrono-chatbot-valkey
+  replicas: 1
+  selector:
+    matchLabels:
+      app: synchrono-chatbot-valkey
+  template:
+    metadata:
+      labels:
+        app: synchrono-chatbot-valkey
+    spec:
+      containers:
+        - name: valkey
+          image: valkey/valkey-bundle:9.1.3-alpine
+          args: ["valkey-server", "--appendonly", "yes",
+                 "--maxmemory", "400mb", "--maxmemory-policy", "volatile-lru"]
+          ports:
+            - name: valkey
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["valkey-cli", "ping"]
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 512Mi}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 2Gi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: synchrono-chatbot-valkey
+spec:
+  podSelector:
+    matchLabels:
+      app: synchrono-chatbot-valkey
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              synchrono.io/chatbot: "true"
+      ports:
+        - protocol: TCP
+          port: 6379

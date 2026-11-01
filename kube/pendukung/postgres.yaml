@@ -1,0 +1,85 @@
+# PostgreSQL 16 + pgvector untuk riwayat percakapan, knowledge, dan vektor chatbot. Pengguna dan nama
+# DB harus sama dengan INTERNAL_USER / INTERNAL_DATABASE di kube/config.env.
+apiVersion: v1
+kind: Service
+metadata:
+  name: synchrono-chatbot-db
+  labels:
+    app.kubernetes.io/name: synchrono-chatbot
+    app.kubernetes.io/component: db
+spec:
+  selector:
+    app: synchrono-chatbot-db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: synchrono-chatbot-db
+  labels:
+    app.kubernetes.io/name: synchrono-chatbot
+    app.kubernetes.io/component: db
+spec:
+  serviceName: synchrono-chatbot-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: synchrono-chatbot-db
+  template:
+    metadata:
+      labels:
+        app: synchrono-chatbot-db
+    spec:
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg16
+          env:
+            - {name: POSTGRES_USER, value: synchrono}
+            - {name: POSTGRES_DB, value: synchrono_chatbot}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: synchrono-chatbot-secret, key: INTERNAL_PASSWORD}
+            # Subfolder: akar volume bisa berisi lost+found, yang ditolak initdb.
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "synchrono", "-d", "synchrono_chatbot"]
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {memory: 1Gi}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: synchrono-chatbot-db
+spec:
+  podSelector:
+    matchLabels:
+      app: synchrono-chatbot-db
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              synchrono.io/chatbot: "true"
+      ports:
+        - protocol: TCP
+          port: 5432
