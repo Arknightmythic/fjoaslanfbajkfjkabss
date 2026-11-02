@@ -9,6 +9,7 @@ engine).
 | `config.env` | setelan bukan rahasia → ConfigMap `synchrono-chatbot-config` |
 | `secret.env.example` | daftar kunci rahasia → Secret `synchrono-chatbot-secret` (dibuat sendiri) |
 | `pendukung/` | PostgreSQL pgvector + Valkey bundle khusus chatbot (StatefulSet + PVC + NetworkPolicy) |
+| `headlamp/` | berkas siap tempel untuk deploy lewat Headlamp, tanpa kubectl (`headlamp/README.md`) |
 
 ## Layanan di cluster (dicek 1 Nov 2026)
 

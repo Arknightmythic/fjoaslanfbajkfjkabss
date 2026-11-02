@@ -1,0 +1,333 @@
+# Hasil render, jangan diedit di sini. Ubah sumbernya lalu render ulang (kube/headlamp/README.md):
+#   kubectl kustomize kube > kube/headlamp/3-chatbot.yaml
+apiVersion: v1
+data:
+  ANOMALY_CACHE_TTL_SECONDS: "30"
+  AWS_DEFAULT_REGION: us-east-1
+  CELERY_BROKER_URL: redis://synchrono-chatbot-valkey:6379/1
+  CHATBOT_ANSWER_AUDIT_ENABLED: "true"
+  CHATBOT_FILE_TRACE_ENABLED: "true"
+  CHATBOT_LOG_BUCKET: chatbot-logs
+  CHATBOT_LOG_QUEUE: chatbot_logs
+  CHATBOT_TRACE_BACKUP_COUNT: "5"
+  CHATBOT_TRACE_FILE: /app/data/logs/chatbot-traces.jsonl
+  CHATBOT_TRACE_INCLUDE_CONTENT: "true"
+  CHATBOT_TRACE_JSON_DIR: /app/data/logs/traces
+  CHATBOT_TRACE_MAX_BYTES: "10485760"
+  CHATBOT_TRACE_PAYLOAD_MAX_CHARS: "4000"
+  CHATBOT_TRACE_WRITE_JSON: "true"
+  CORS_ORIGINS: '["http://localhost:3000","http://localhost:5173","http://127.0.0.1:8000","http://localhost:8000"]'
+  DB_CONNECT_TIMEOUT: "5"
+  DB_HOST: starrocks.starrocks.svc.cluster.local
+  DB_MAX_RETRIES: "2"
+  DB_MAX_ROWS: "200"
+  DB_NAME: syncrono_starrocks_v002
+  DB_PORT: "9030"
+  DB_READ_TIMEOUT: "15"
+  DB_USER: root
+  DOCUMENT_DIRECT_MIN_SCORE: "0.0"
+  DOCUMENT_RETRIEVAL_CANDIDATES: "20"
+  EMBEDDING_BASE_URL: http://192.168.2.107:11435/v1
+  EMBEDDING_MODEL: openrouter/qwen/qwen3-embedding-8b
+  EMBEDDING_PROVIDER: openai
+  HOST: 0.0.0.0
+  INTERNAL_DATABASE: synchrono_chatbot
+  INTERNAL_HOST: synchrono-chatbot-db
+  INTERNAL_PORT: "5432"
+  INTERNAL_USER: synchrono
+  KNOWLEDGE_DOCUMENT_INGEST_PREFIX: document-inbox/
+  KNOWLEDGE_INGEST_FILE_ENABLED: "false"
+  KNOWLEDGE_INGEST_PREFIX: faq-inbox/
+  OPENAI_BASE_URL: http://192.168.2.107:11435/v1
+  OPENAI_MODEL_NAME: gemma4:31b
+  PGVECTOR_COLLECTION_NAME: synchrono_faq_docs
+  PGVECTOR_DOCUMENT_COLLECTION_NAME: synchrono_documents
+  PORT: "8000"
+  S3_BUCKET: chatbot-documents
+  S3_ENDPOINT_URL: http://seaweedfs.seaweedfs.svc.cluster.local:8333
+  SEMANTIC_CACHE_DOCUMENT_INDEX: idx:query_cache_document
+  SEMANTIC_CACHE_DOCUMENT_KEY_PREFIX: 'query_cache_document:'
+  SEMANTIC_CACHE_TTL_SECONDS: "43200"
+  VALKEY_DB: "0"
+  VALKEY_HOST: synchrono-chatbot-valkey
+  VALKEY_PORT: "6379"
+kind: ConfigMap
+metadata:
+  name: synchrono-chatbot-config-248h2c7kkt
+  namespace: syncrono
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: synchrono-chatbot
+  name: synchrono-chatbot
+  namespace: syncrono
+spec:
+  ports:
+  - name: http
+    nodePort: 31801
+    port: 8000
+    targetPort: http
+  selector:
+    app: synchrono-chatbot-api
+  type: NodePort
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    app.kubernetes.io/name: synchrono-chatbot
+  name: synchrono-chatbot-data
+  namespace: syncrono
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: api
+    app.kubernetes.io/name: synchrono-chatbot
+  name: synchrono-chatbot-api
+  namespace: syncrono
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: synchrono-chatbot-api
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: synchrono-chatbot-api
+        synchrono.io/chatbot: "true"
+    spec:
+      containers:
+      - command:
+        - /app/.venv/bin/uvicorn
+        - src.api.server:app
+        - --host
+        - 0.0.0.0
+        - --port
+        - "8000"
+        envFrom:
+        - configMapRef:
+            name: synchrono-chatbot-config-248h2c7kkt
+        - secretRef:
+            name: synchrono-chatbot-secret
+        image: registry.digie-tekno.com/product/synchrono-chatbot:kube-mvp
+        livenessProbe:
+          failureThreshold: 6
+          httpGet:
+            path: /api/v1/health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 20
+        name: api
+        ports:
+        - containerPort: 8000
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: http
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: "2"
+            memory: 3Gi
+          requests:
+            cpu: 200m
+            memory: 1Gi
+        volumeMounts:
+        - mountPath: /app/data
+          name: data
+          subPath: data
+        - mountPath: /tmp/fastembed_cache
+          name: data
+          subPath: fastembed
+      - command:
+        - /app/.venv/bin/celery
+        - -A
+        - src.celery_app.celery_app
+        - worker
+        - --loglevel=INFO
+        - --queues=$(CHATBOT_LOG_QUEUE)
+        - --concurrency=1
+        - -n
+        - logs@%h
+        envFrom:
+        - configMapRef:
+            name: synchrono-chatbot-config-248h2c7kkt
+        - secretRef:
+            name: synchrono-chatbot-secret
+        image: registry.digie-tekno.com/product/synchrono-chatbot:kube-mvp
+        name: log-archiver
+        resources:
+          limits:
+            memory: 768Mi
+          requests:
+            cpu: 20m
+            memory: 192Mi
+        volumeMounts:
+        - mountPath: /app/data
+          name: data
+          subPath: data
+      imagePullSecrets:
+      - name: gitlab-registry
+      initContainers:
+      - command:
+        - /app/.venv/bin/alembic
+        - upgrade
+        - head
+        envFrom:
+        - configMapRef:
+            name: synchrono-chatbot-config-248h2c7kkt
+        - secretRef:
+            name: synchrono-chatbot-secret
+        image: registry.digie-tekno.com/product/synchrono-chatbot:kube-mvp
+        name: migrate
+        resources:
+          limits:
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+      securityContext:
+        fsGroup: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        runAsUser: 999
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: synchrono-chatbot-data
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: beat
+    app.kubernetes.io/name: synchrono-chatbot
+  name: synchrono-chatbot-beat
+  namespace: syncrono
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: synchrono-chatbot-beat
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: synchrono-chatbot-beat
+        synchrono.io/chatbot: "true"
+    spec:
+      containers:
+      - command:
+        - /app/.venv/bin/celery
+        - -A
+        - src.celery_app.celery_app
+        - beat
+        - --loglevel=INFO
+        - --schedule=/tmp/celerybeat-schedule
+        envFrom:
+        - configMapRef:
+            name: synchrono-chatbot-config-248h2c7kkt
+        - secretRef:
+            name: synchrono-chatbot-secret
+        image: registry.digie-tekno.com/product/synchrono-chatbot:kube-mvp
+        name: beat
+        resources:
+          limits:
+            memory: 256Mi
+          requests:
+            cpu: 10m
+            memory: 96Mi
+      imagePullSecrets:
+      - name: gitlab-registry
+      securityContext:
+        runAsGroup: 999
+        runAsNonRoot: true
+        runAsUser: 999
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: document-worker
+    app.kubernetes.io/name: synchrono-chatbot
+  name: synchrono-chatbot-worker
+  namespace: syncrono
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: synchrono-chatbot-worker
+  template:
+    metadata:
+      labels:
+        app: synchrono-chatbot-worker
+        synchrono.io/chatbot: "true"
+    spec:
+      containers:
+      - command:
+        - /app/.venv/bin/celery
+        - -A
+        - src.celery_app.celery_app
+        - worker
+        - --loglevel=INFO
+        - --queues=document_ingest
+        - --concurrency=2
+        - -n
+        - documents@%h
+        envFrom:
+        - configMapRef:
+            name: synchrono-chatbot-config-248h2c7kkt
+        - secretRef:
+            name: synchrono-chatbot-secret
+        image: registry.digie-tekno.com/product/synchrono-chatbot:kube-mvp
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - /app/.venv/bin/celery -A src.celery_app.celery_app inspect ping --timeout=10
+              -d documents@$(hostname) | grep -q pong
+          failureThreshold: 3
+          initialDelaySeconds: 60
+          periodSeconds: 60
+          timeoutSeconds: 30
+        name: worker
+        resources:
+          limits:
+            memory: 1536Mi
+          requests:
+            cpu: 100m
+            memory: 384Mi
+        volumeMounts:
+        - mountPath: /app/data
+          name: scratch
+          subPath: data
+        - mountPath: /tmp/fastembed_cache
+          name: scratch
+          subPath: fastembed
+      imagePullSecrets:
+      - name: gitlab-registry
+      securityContext:
+        fsGroup: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        runAsUser: 999
+      terminationGracePeriodSeconds: 120
+      volumes:
+      - emptyDir:
+          sizeLimit: 5Gi
+        name: scratch

@@ -1,0 +1,196 @@
+# Hasil render, jangan diedit di sini. Ubah sumbernya lalu render ulang (kube/headlamp/README.md):
+#   kubectl kustomize kube/pendukung > kube/headlamp/2-pendukung.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: db
+    app.kubernetes.io/name: synchrono-chatbot
+  name: synchrono-chatbot-db
+  namespace: syncrono
+spec:
+  ports:
+  - name: postgres
+    port: 5432
+    targetPort: postgres
+  selector:
+    app: synchrono-chatbot-db
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: valkey
+    app.kubernetes.io/name: synchrono-chatbot
+  name: synchrono-chatbot-valkey
+  namespace: syncrono
+spec:
+  ports:
+  - name: valkey
+    port: 6379
+    targetPort: valkey
+  selector:
+    app: synchrono-chatbot-valkey
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app.kubernetes.io/component: db
+    app.kubernetes.io/name: synchrono-chatbot
+  name: synchrono-chatbot-db
+  namespace: syncrono
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: synchrono-chatbot-db
+  serviceName: synchrono-chatbot-db
+  template:
+    metadata:
+      labels:
+        app: synchrono-chatbot-db
+    spec:
+      containers:
+      - env:
+        - name: POSTGRES_USER
+          value: synchrono
+        - name: POSTGRES_DB
+          value: synchrono_chatbot
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: INTERNAL_PASSWORD
+              name: synchrono-chatbot-secret
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        image: pgvector/pgvector:pg16
+        name: postgres
+        ports:
+        - containerPort: 5432
+          name: postgres
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - synchrono
+            - -d
+            - synchrono_chatbot
+          periodSeconds: 10
+        resources:
+          limits:
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        volumeMounts:
+        - mountPath: /var/lib/postgresql/data
+          name: data
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app.kubernetes.io/component: valkey
+    app.kubernetes.io/name: synchrono-chatbot
+  name: synchrono-chatbot-valkey
+  namespace: syncrono
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: synchrono-chatbot-valkey
+  serviceName: synchrono-chatbot-valkey
+  template:
+    metadata:
+      labels:
+        app: synchrono-chatbot-valkey
+    spec:
+      containers:
+      - args:
+        - valkey-server
+        - --appendonly
+        - "yes"
+        - --maxmemory
+        - 400mb
+        - --maxmemory-policy
+        - volatile-lru
+        image: valkey/valkey-bundle:9.1.3-alpine
+        name: valkey
+        ports:
+        - containerPort: 6379
+          name: valkey
+        readinessProbe:
+          exec:
+            command:
+            - valkey-cli
+            - ping
+          periodSeconds: 10
+        resources:
+          limits:
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        volumeMounts:
+        - mountPath: /data
+          name: data
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 2Gi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: synchrono-chatbot-db
+  namespace: syncrono
+spec:
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          synchrono.io/chatbot: "true"
+    ports:
+    - port: 5432
+      protocol: TCP
+  podSelector:
+    matchLabels:
+      app: synchrono-chatbot-db
+  policyTypes:
+  - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: synchrono-chatbot-valkey
+  namespace: syncrono
+spec:
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          synchrono.io/chatbot: "true"
+    ports:
+    - port: 6379
+      protocol: TCP
+  podSelector:
+    matchLabels:
+      app: synchrono-chatbot-valkey
+  policyTypes:
+  - Ingress
